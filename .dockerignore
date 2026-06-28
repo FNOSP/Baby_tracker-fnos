@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+data/
+.trae/
+.git/
+.gitignore
+.FullName
+package-lock.json
+static/css/tailwind.min.css
+static/vendor/
+docs/
