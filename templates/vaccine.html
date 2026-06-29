@@ -1,14 +1,21 @@
 {% extends "base.html" %}
 {% set active_page = 'vaccine' %}
-{% block title %}成长计划 - Baby Tracker{% endblock %}
+{% block title %}成长 - Baby Tracker{% endblock %}
 
 {% block content %}
 <div class="space-y-5 fade-in pb-20 md:pb-0">
-    <div class="flex items-center justify-between">
-        <h1 class="text-xl font-semibold">成长计划</h1>
+    <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-xl font-semibold">成长</h1>
+        <span id="vaccine-age" class="text-xs text-text-muted font-mono"></span>
+        <div class="flex-1"></div>
         <div class="flex items-center gap-2">
-            <span id="vaccine-age" class="text-xs text-text-muted font-mono"></span>
-            <button id="vaccine-add-btn" onclick="showAddVaccineModal()" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors">+ 自定义</button>
+            <label id="date-picker-wrap" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors cursor-pointer relative overflow-hidden hidden">
+                <span id="date-display">--</span>
+                <input type="date" id="schedule-date-picker" class="absolute opacity-0 inset-0 cursor-pointer" onchange="onScheduleDatePick(this.value)">
+            </label>
+            <button id="vaccine-add-btn" onclick="showAddVaccineModal()" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors hidden">+ 自定义</button>
+            <button id="health-add-btn" onclick="showAddHealthModal()" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors hidden">+ 自定义</button>
+            <button id="countdown-add-btn" onclick="showCountdownModal()" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors hidden">+ 倒数日</button>
         </div>
     </div>
 
@@ -53,16 +60,19 @@
         </div>
 
         <!-- 筛选 -->
-        <div class="flex flex-wrap gap-2 justify-center">
-            <button class="tab-btn active" data-filter="all" onclick="filterRecords('all', this)">全部</button>
-            <button class="tab-btn" data-filter="feed" onclick="filterRecords('feed', this)">喂养</button>
-            <button class="tab-btn" data-filter="excrete" onclick="filterRecords('excrete', this)">排泄</button>
-            <button class="tab-btn" data-filter="symptom" onclick="filterRecords('symptom', this)">症状</button>
-            <button class="tab-btn" data-filter="supplement" onclick="filterRecords('supplement', this)">补充</button>
-            <button class="tab-btn" data-filter="vaccine" onclick="filterRecords('vaccine', this)">疫苗</button>
-            <button class="tab-btn" data-filter="health" onclick="filterRecords('health', this)">随访</button>
-            <button class="tab-btn" data-filter="countdown" onclick="filterRecords('countdown', this)">倒数日</button>
+        <div class="card p-1 grid grid-cols-4 gap-0.5">
+            <button class="filter-pill active" data-filter="all" onclick="filterRecords('all', this)">全部</button>
+            <button class="filter-pill" data-filter="feed" onclick="filterRecords('feed', this)">喂养</button>
+            <button class="filter-pill" data-filter="excrete" onclick="filterRecords('excrete', this)">排泄</button>
+            <button class="filter-pill" data-filter="symptom" onclick="filterRecords('symptom', this)">症状</button>
+            <button class="filter-pill" data-filter="supplement" onclick="filterRecords('supplement', this)">补充</button>
+            <button class="filter-pill" data-filter="vaccine" onclick="filterRecords('vaccine', this)">疫苗</button>
+            <button class="filter-pill" data-filter="health" onclick="filterRecords('health', this)">随访</button>
+            <button class="filter-pill" data-filter="countdown" onclick="filterRecords('countdown', this)">倒数日</button>
         </div>
+
+        <!-- 日期间隔提示 -->
+        <div class="text-center text-xs text-text-muted font-mono" id="date-diff-label"></div>
 
         <!-- 记录列表 -->
         <div id="records-list" class="space-y-2">
@@ -100,9 +110,6 @@
 
     <!-- 倒数日 Tab -->
     <div id="tab-countdown" class="space-y-5 hidden">
-        <div class="flex justify-end">
-            <button onclick="showCountdownModal()" class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors">+ 添加</button>
-        </div>
         <div id="countdown-list" class="space-y-2"></div>
     </div>
 </div>
@@ -204,6 +211,31 @@
         <div class="flex gap-2 mt-4">
             <button class="btn-secondary flex-1 text-sm" onclick="closeAddVaccineModal()">取消</button>
             <button class="btn-primary flex-1 text-sm" onclick="saveCustomVaccine()">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- 添加自定义健康随访弹窗 -->
+<div id="add-health-modal" class="fixed inset-0 z-[90] hidden items-center justify-center bg-black/60">
+    <div class="bg-surface border border-border rounded-xl p-6 w-80 max-w-[90vw]">
+        <h3 class="text-sm font-medium text-text-secondary mb-3">添加自定义随访</h3>
+        <div class="space-y-3">
+            <div>
+                <label class="text-text-muted text-xs mb-1 block">随访名称</label>
+                <input type="text" id="ah-name" class="input-field" placeholder="如：血常规检查">
+            </div>
+            <div>
+                <label class="text-text-muted text-xs mb-1 block">完成日期</label>
+                <input type="date" id="ah-date" class="input-field font-mono">
+            </div>
+            <div>
+                <label class="text-text-muted text-xs mb-1 block">备注</label>
+                <input type="text" id="ah-note" class="input-field" placeholder="如：社区医院">
+            </div>
+        </div>
+        <div class="flex gap-2 mt-4">
+            <button class="btn-secondary flex-1 text-sm" onclick="closeAddHealthModal()">取消</button>
+            <button class="btn-primary flex-1 text-sm" onclick="saveCustomHealth()">确认</button>
         </div>
     </div>
 </div>

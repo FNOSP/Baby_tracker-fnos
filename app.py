@@ -1846,6 +1846,24 @@ def health_schedule():
         }
         schedule.append(entry)
 
+    # 自定义随访记录（不在预定义计划中的已完成记录）
+    schedule_labels = {s['label'] for s in schedule_list}
+    for r in records:
+        if r['label'] not in schedule_labels:
+            schedule.append({
+                'label': r['label'],
+                'age_months': None,
+                'premature_only': False,
+                'location': '',
+                'due_date': r['completed_date'],
+                'default_due_date': r['completed_date'],
+                'status': 'done',
+                'completed_date': r['completed_date'],
+                'note_text': r['note'] or '',
+                'is_premature': False,
+                'is_custom': True,
+            })
+
     # 概览
     next_upcoming = None
     for s in schedule:
@@ -1954,6 +1972,12 @@ def health_dates():
                 result['overdue'].append(due_date)
             else:
                 result['upcoming'].append(due_date)
+
+    # 自定义随访记录（不在预定义计划中的）
+    schedule_labels = {s['label'] for s in schedule_list}
+    for r in records:
+        if r['label'] not in schedule_labels:
+            result['completed'].append(r['completed_date'])
 
     return jsonify(result)
 

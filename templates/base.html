@@ -66,10 +66,10 @@
             <a href="/" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}" title="总览">
                 <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
             </a>
-            <a href="/trends" class="nav-item {% if active_page == 'trends' %}active{% endif %}" title="统计趋势">
+            <a href="/trends" class="nav-item {% if active_page == 'trends' %}active{% endif %}" title="趋势">
                 <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
             </a>
-            <a href="/vaccine" class="nav-item {% if active_page == 'vaccine' %}active{% endif %}" title="成长计划">
+            <a href="/vaccine" class="nav-item {% if active_page == 'vaccine' %}active{% endif %}" title="成长">
                 <i data-lucide="sprout" class="w-5 h-5"></i>
             </a>
             {% if current_user and current_user.role == 'admin' %}

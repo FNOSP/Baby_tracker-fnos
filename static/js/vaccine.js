@@ -29,9 +29,15 @@ function switchTab(tab) {
         const el = document.getElementById('tab-' + t);
         if (el) el.classList.toggle('hidden', tab !== t);
     });
-    // 自定义疫苗按钮仅在疫苗 Tab 显示
+    // 头部按钮按 Tab 控制
     const addBtn = document.getElementById('vaccine-add-btn');
+    const healthBtn = document.getElementById('health-add-btn');
+    const countdownBtn = document.getElementById('countdown-add-btn');
+    const datePicker = document.getElementById('date-picker-wrap');
     if (addBtn) addBtn.classList.toggle('hidden', tab !== 'vaccine');
+    if (healthBtn) healthBtn.classList.toggle('hidden', tab !== 'health');
+    if (countdownBtn) countdownBtn.classList.toggle('hidden', tab !== 'countdown');
+    if (datePicker) datePicker.classList.toggle('hidden', tab !== 'schedule');
     // 按需懒加载
     if (tab === 'schedule' && !_scheduleLoaded) initCalendar();
     if (tab === 'health' && !_healthLoaded) loadHealth();
@@ -376,6 +382,41 @@ async function saveCustomVaccine() {
     } catch (e) { showToast(e.message); }
 }
 
+// ── 自定义健康随访弹窗 ───────────────────────────────────
+function showAddHealthModal() {
+    document.getElementById('ah-name').value = '';
+    document.getElementById('ah-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('ah-note').value = '';
+    const m = document.getElementById('add-health-modal');
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    if (typeof fabClose === 'function') fabClose();
+    document.getElementById('ah-name').focus();
+}
+
+function closeAddHealthModal() {
+    const m = document.getElementById('add-health-modal');
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+}
+
+async function saveCustomHealth() {
+    const label = document.getElementById('ah-name').value.trim();
+    const completedDate = document.getElementById('ah-date').value;
+    const note = document.getElementById('ah-note').value;
+    if (!label) { showToast('请输入随访名称'); return; }
+    if (!completedDate) { showToast('请选择日期'); return; }
+    try {
+        await api('/api/health/record', {
+            method: 'POST',
+            body: JSON.stringify({ label, completed_date: completedDate, note })
+        });
+        showToast(`${label} 已记录`);
+        closeAddHealthModal();
+        await loadHealth();
+    } catch (e) { showToast(e.message); }
+}
+
 // ═════════════════════════════════════════════════════════
 // ── 健康随访 ─────────────────────────────────────────────
 // ═════════════════════════════════════════════════════════
@@ -501,6 +542,7 @@ function renderHealthList() {
                     <i data-lucide="${cfg.icon}" class="w-4 h-4 ${cfg.color} flex-shrink-0"></i>
                     <span class="text-sm font-medium text-text-primary">${esc(item.label)}</span>
                     ${item.premature_only ? '<span class="text-[9px] text-amber-400 border border-amber-500/20 rounded px-1 flex-shrink-0">早产</span>' : ''}
+                    ${item.is_custom ? '<span class="text-[9px] text-teal-400 border border-teal-500/20 rounded px-1 flex-shrink-0">自定义</span>' : ''}
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     ${isDone ? `<span class="text-[10px] text-accent font-mono">✓ ${esc(item.completed_date || '')}</span>` : ''}
@@ -764,6 +806,9 @@ async function initCalendar() {
     calYear = now.getFullYear();
     calMonth = now.getMonth();
     selectedDate = formatDateISO(now);
+    const dp = document.getElementById('schedule-date-picker');
+    if (dp) dp.value = selectedDate;
+    updateDateDisplay(selectedDate);
     recordDates.clear();
     vaccineVaccinatedDates.clear();
     vaccineOverdueDates.clear();
@@ -774,6 +819,7 @@ async function initCalendar() {
     await Promise.all([loadRecordDates(), loadVaccineDates(), loadHealthDates(), loadCountdownDates()]);
     _scheduleLoaded = true;
     renderCalendar();
+    updateDateDiffLabel(selectedDate);
     loadRecords(selectedDate);
 }
 
@@ -876,8 +922,43 @@ function renderCalendar() {
 
 function selectDate(dateStr) {
     selectedDate = dateStr;
+    const dp = document.getElementById('schedule-date-picker');
+    if (dp) dp.value = dateStr;
+    updateDateDisplay(dateStr);
     renderCalendar();
+    updateDateDiffLabel(dateStr);
     loadRecords(dateStr);
+}
+
+function onScheduleDatePick(dateStr) {
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+    selectedDate = dateStr;
+    updateDateDisplay(dateStr);
+    renderCalendar();
+    updateDateDiffLabel(dateStr);
+    loadRecords(dateStr);
+}
+
+function updateDateDisplay(dateStr) {
+    const el = document.getElementById('date-display');
+    if (!el || !dateStr) return;
+    const d = new Date(dateStr);
+    el.textContent = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function updateDateDiffLabel(dateStr) {
+    const el = document.getElementById('date-diff-label');
+    if (!el) return;
+    const today = formatDateISO(new Date());
+    const diff = Math.round((new Date(dateStr) - new Date(today)) / 86400000);
+    let diffText;
+    if (diff === 0) diffText = '今天';
+    else if (diff > 0) diffText = `${diff} 天后`;
+    else diffText = `${Math.abs(diff)} 天前`;
+    el.textContent = `${dateStr} · ${diffText}`;
 }
 
 async function loadRecords(dateStr) {

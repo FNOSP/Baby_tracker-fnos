@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% set active_page = 'trends' %}
-{% block title %}统计趋势 - Baby Tracker{% endblock %}
+{% block title %}趋势 - Baby Tracker{% endblock %}
 
 {% block content %}
 <div class="space-y-5 fade-in pb-20 md:pb-0">
     <div class="flex items-center justify-between">
-        <h1 class="text-xl font-semibold">统计趋势</h1>
+        <h1 class="text-xl font-semibold">趋势</h1>
         <div class="flex items-center gap-2">
             <select id="trend-days" class="input-field font-mono text-xs py-1.5 w-24" onchange="loadTrends()">
                 <option value="7">7天</option>
