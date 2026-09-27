@@ -94,25 +94,42 @@ NEW_ADMIN_HEADER_BLOCK = """    <div class="flex items-center justify-between">
             <i data-lucide="shield-check" class="w-4 h-4 text-accent"></i>
             <h2 class="text-sm font-medium text-text-secondary">管理配置</h2>
         </div>
-        <p class="text-xs text-text-muted">管理员账号：<span class="font-mono text-text-secondary">{{ current_user.username }}</span></p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-                <label class="text-text-muted text-xs mb-1 block">服务绑定地址</label>
-                <input type="text" id="admin-bind-address" class="input-field font-mono text-sm" placeholder="192.168.1.10" autocomplete="off">
-            </div>
-            <div>
-                <label class="text-text-muted text-xs mb-1 block">监听端口</label>
-                <input type="number" id="admin-service-port" class="input-field font-mono text-sm" min="1024" max="65535" placeholder="8964">
-            </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <button class="btn-primary text-sm w-fit" data-save-service-config>保存服务配置</button>
-            <button class="btn-secondary text-sm w-fit" data-change-admin-pw data-admin-id="{{ current_user.id }}" data-admin-name="{{ current_user.username }}">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-xs text-text-muted">管理员账号：<span class="font-mono text-text-secondary">{{ current_user.username }}</span></p>
+            <button class="btn-secondary text-xs px-3 py-1.5" data-change-admin-pw data-admin-id="{{ current_user.id }}" data-admin-name="{{ current_user.username }}">
                 修改管理密码
             </button>
         </div>
-        <p class="text-[10px] text-text-muted">保存服务配置会校验绑定地址并自动重启应用，飞牛网关和局域网端口会短暂中断；新地址会同步到下方 Home Assistant 配置第二步。</p>
-        <p class="text-[10px] text-text-muted">忘记密码时，从飞牛桌面重新进入应用并完成一键登录后，可在此修改。</p>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+            <div>
+                <p class="text-xs text-text-secondary">监听服务</p>
+                <p id="service-config-status" class="text-[11px] text-text-muted mt-0.5">目前仅通过飞牛统一网关访问，建议按需设置监听地址</p>
+            </div>
+            <button type="button" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" data-toggle-service-config aria-expanded="false" aria-controls="service-config-panel">
+                <span>设置监听地址</span>
+                <i data-lucide="chevron-down" class="w-3.5 h-3.5 service-config-toggle-icon"></i>
+            </button>
+        </div>
+        <div id="service-config-panel" class="service-config-panel" aria-hidden="true">
+            <div class="service-config-panel-inner">
+                <div class="space-y-3 pt-1">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-text-muted text-xs mb-1 block">监听地址（可选）</label>
+                            <input type="text" id="admin-bind-address" class="input-field font-mono text-sm" placeholder="例如 192.168.1.10" autocomplete="off">
+                        </div>
+                        <div>
+                            <label class="text-text-muted text-xs mb-1 block">监听端口（可选）</label>
+                            <input type="number" id="admin-service-port" class="input-field font-mono text-sm" min="1024" max="65535" placeholder="例如 8964">
+                        </div>
+                    </div>
+                    <p id="service-config-warning" class="text-[11px] leading-relaxed text-amber-400 hidden" aria-live="polite"></p>
+                    <button class="btn-primary text-sm w-fit" data-save-service-config>保存监听配置</button>
+                    <p class="text-[10px] text-text-muted">默认留空，仅通过飞牛统一网关访问。填写后应用会额外开放 TCP 监听并自动重启；地址和端口需同时填写，新地址会同步到下方 Home Assistant 配置第二步。</p>
+                    <p class="text-[10px] text-text-muted">设置 0.0.0.0 或公网地址前，请确认防火墙和访问控制已配置。忘记密码时，从飞牛桌面重新进入应用并一键登录后，可在此修改。</p>
+                </div>
+            </div>
+        </div>
     </div>
     {% endif %}
 """
@@ -195,10 +212,15 @@ NEW_ADMIN_EVENTS_BLOCK = """        document.addEventListener('click', e => {
             if (resetBtn) showResetPasswordModal(parseInt(resetBtn.dataset.resetPw), resetBtn.dataset.resetName);
             const saveServiceBtn = e.target.closest('[data-save-service-config]');
             if (saveServiceBtn) saveServiceConfig();
+            const serviceToggleBtn = e.target.closest('[data-toggle-service-config]');
+            if (serviceToggleBtn) toggleServiceConfig();
             const ownerPwBtn = e.target.closest('[data-change-admin-pw]');
             if (ownerPwBtn) showResetPasswordModal(parseInt(ownerPwBtn.dataset.adminId), ownerPwBtn.dataset.adminName);
             const renameBtn = e.target.closest('[data-rename-user]');
             if (renameBtn) showRenameUserModal(parseInt(renameBtn.dataset.renameUser), renameBtn.dataset.renameName);
+        });
+        document.addEventListener('input', e => {
+            if (e.target.closest('#admin-bind-address')) updateServiceRiskWarning();
         });
 """
 
@@ -251,16 +273,66 @@ NEW_RESET_SCRIPT_BLOCK = """async function resetPassword() {
 
 OLD_HA_API_KEY_FUNCTION_BLOCK = "async function generateHaApiKey() {"
 
-NEW_SERVICE_CONFIG_FUNCTIONS_BLOCK = '''async function loadServiceConfig() {
+NEW_SERVICE_CONFIG_FUNCTIONS_BLOCK = '''function isPublicIPv4(value) {
+    const octets = String(value || '').split('.').map(Number);
+    if (octets.length !== 4 || octets.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    if (octets[0] === 0 || octets[0] === 10 || octets[0] === 127) return false;
+    if (octets[0] === 169 && octets[1] === 254) return false;
+    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return false;
+    if (octets[0] === 192 && octets[1] === 168) return false;
+    if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return false;
+    return true;
+}
+
+function serviceRiskWarning(bindAddress) {
+    if (bindAddress === '0.0.0.0') return '监听所有网卡可能扩大访问范围，请确认防火墙和端口映射安全。';
+    if (isPublicIPv4(bindAddress)) return '该地址可能允许公网直接访问，请确认防火墙和访问控制安全。';
+    return '';
+}
+
+function updateServiceRiskWarning() {
+    const warning = document.getElementById('service-config-warning');
+    if (!warning) return '';
+    const bindAddress = document.getElementById('admin-bind-address')?.value?.trim() || '';
+    const message = serviceRiskWarning(bindAddress);
+    warning.textContent = message;
+    warning.classList.toggle('hidden', !message);
+    return message;
+}
+
+function updateServiceConfigStatus(config) {
+    const status = document.getElementById('service-config-status');
+    if (!status) return;
+    const bindAddress = String(config?.bind_address || '').trim();
+    const port = String(config?.port || '').trim();
+    status.textContent = bindAddress && port
+        ? `已开启 ${bindAddress}:${port}`
+        : '目前仅通过飞牛统一网关访问，建议按需设置监听地址';
+}
+
+function toggleServiceConfig(forceOpen) {
+    const panel = document.getElementById('service-config-panel');
+    const trigger = document.querySelector('[data-toggle-service-config]');
+    if (!panel || !trigger) return;
+    const open = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('is-open');
+    panel.classList.toggle('is-open', open);
+    panel.setAttribute('aria-hidden', String(!open));
+    trigger.setAttribute('aria-expanded', String(open));
+    if ('inert' in panel) panel.inert = !open;
+}
+
+async function loadServiceConfig() {
     try {
         const config = await api('/api/admin/service-config');
         const bindInput = document.getElementById('admin-bind-address');
         const portInput = document.getElementById('admin-service-port');
-        if (bindInput && config.bind_address) bindInput.value = config.bind_address;
-        if (portInput && config.port) portInput.value = config.port;
-        syncHaServiceAddress(config);
+        if (bindInput) bindInput.value = config.bind_address || '';
+        if (portInput) portInput.value = config.port || '';
+        updateServiceConfigStatus(config);
+        updateServiceRiskWarning();
+        if (config.bind_address && config.port) syncHaServiceAddress(config);
     } catch (e) {
-        console.warn('加载服务配置失败', e);
+        console.warn('加载监听配置失败', e);
     }
 }
 
@@ -279,15 +351,20 @@ async function saveServiceConfig() {
     const bindAddress = bindInput?.value?.trim() || '';
     const port = portInput?.value?.trim() || '';
     const portNumber = Number(port);
-    if (!bindAddress) {
-        showToast('请输入服务绑定地址');
+    if ((bindAddress && !port) || (!bindAddress && port)) {
+        showToast('监听地址和端口需同时填写，留空则关闭监听');
         return;
     }
-    if (!port || !Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535) {
+    if (bindAddress && (!port || !Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535)) {
         showToast('监听端口范围应为 1024-65535');
         return;
     }
-    if (!await showConfirm('保存服务配置后应用会自动重启，飞牛网关和局域网端口会短暂中断。确定继续？', { confirmText: '保存并重启' })) return;
+    const riskWarning = serviceRiskWarning(bindAddress);
+    const restartHint = bindAddress
+        ? '保存后应用会自动重启，统一网关和监听端口会短暂中断。'
+        : '关闭后应用会自动重启，仅保留飞牛统一网关访问。';
+    const confirmMessage = riskWarning ? `${riskWarning}\n\n${restartHint}` : restartHint;
+    if (!await showConfirm(confirmMessage, { confirmText: bindAddress ? '保存并重启' : '关闭并重启' })) return;
 
     const button = document.querySelector('[data-save-service-config]');
     if (button) {
@@ -300,17 +377,19 @@ async function saveServiceConfig() {
             body: JSON.stringify({ bind_address: bindAddress, port }),
         });
         const applied = {
-            bind_address: result.bind_address || bindAddress,
-            port: String(result.port || port),
+            bind_address: result.bind_address ?? bindAddress,
+            port: result.port != null ? String(result.port) : port,
         };
         if (bindInput) bindInput.value = applied.bind_address;
         if (portInput) portInput.value = applied.port;
-        syncHaServiceAddress(applied);
+        updateServiceConfigStatus(applied);
+        updateServiceRiskWarning();
+        if (applied.bind_address && applied.port) syncHaServiceAddress(applied);
         const yamlOutput = document.getElementById('ha-yaml-output');
-        if (yamlOutput && !yamlOutput.textContent.includes('点击上方按钮生成配置')) {
+        if (applied.bind_address && yamlOutput && !yamlOutput.textContent.includes('点击上方按钮生成配置')) {
             generateHaYaml();
         }
-        showToast(result.message || '服务配置已保存');
+        showToast(result.message || '监听配置已保存');
     } catch (e) {
         showToast(e.message);
     } finally {

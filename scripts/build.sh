@@ -22,16 +22,6 @@ die() {
     exit 1
 }
 
-regex_matches() {
-    local pattern="$1" value="$2"
-    "${PYTHON_BIN:-python3}" - "${pattern}" "${value}" <<'PY'
-import re
-import sys
-
-raise SystemExit(0 if re.fullmatch(sys.argv[1], sys.argv[2]) else 1)
-PY
-}
-
 ensure_fnpack() {
     if [ -n "${FNPACK_BIN:-}" ]; then
         [ -x "${FNPACK_BIN}" ] || die "FNPACK_BIN is not executable: ${FNPACK_BIN}"
@@ -137,13 +127,18 @@ validate_package() {
     fi
     [ -s "${PACK_DIR}/ICON.PNG" ] || die "ICON.PNG is missing."
     [ -s "${PACK_DIR}/ICON_256.PNG" ] || die "ICON_256.PNG is missing."
+    [ -s "${SERVER_DIR}/static/icons/icon-192.png" ] || die "PWA 192px icon is missing."
+    [ -s "${SERVER_DIR}/static/icons/icon-180.png" ] || die "PWA 180px icon is missing."
+    [ -s "${SERVER_DIR}/static/icons/icon-512.png" ] || die "PWA 512px icon is missing."
     [ -s "${PACK_DIR}/app/server/wsgi.py" ] || die "WSGI entrypoint is missing."
     [ -s "${PACK_DIR}/app/server/bootstrap.py" ] || die "Database bootstrap script is missing."
     [ -s "${SERVER_DIR}/templates/setup-password.html" ] || die "First-login password setup page is missing."
     if [ -e "${SERVER_DIR}/reset_watcher.py" ]; then
         die "Legacy reset-password watcher is still packaged."
     fi
-    [ -s "${PACK_DIR}/wizard/install" ] || die "Install wizard is missing."
+    if [ -e "${PACK_DIR}/wizard/install" ]; then
+        die "Install wizard must be omitted when no installation input is required."
+    fi
     if grep -q 'BABY_TRACKER_ADMIN_USERNAME\|BABY_TRACKER_ADMIN_PASSWORD' "${SERVER_DIR}/app.py"; then
         die "Legacy installer administrator configuration is still packaged."
     fi
@@ -159,12 +154,44 @@ validate_package() {
     grep -q '/api/auth/setup-password' "${SERVER_DIR}/app.py" || die "Admin password setup endpoint is missing."
     grep -q 'doGatewayLogin' "${SERVER_DIR}/templates/login.html" || die "Gateway sign-in entry is missing."
     grep -q '管理配置' "${SERVER_DIR}/templates/admin.html" || die "Admin configuration card is missing."
+    grep -q '国家免疫规划疫苗儿童免疫程序表（2026年版）' "${SERVER_DIR}/app.py" || die "2026 vaccine schedule is missing."
+    if grep -q '国家免疫规划疫苗儿童免疫程序表（2024年版）' "${SERVER_DIR}/app.py"; then
+        die "Legacy 2024 vaccine schedule is still packaged."
+    fi
+    grep -q '"short": "2vHPV"' "${SERVER_DIR}/app.py" || die "HPV vaccine schedule is missing."
     grep -q 'id="admin-bind-address"' "${SERVER_DIR}/templates/admin.html" || die "Admin bind-address input is missing."
     grep -q 'id="admin-service-port"' "${SERVER_DIR}/templates/admin.html" || die "Admin service-port input is missing."
     grep -q '/api/admin/service-config' "${SERVER_DIR}/app.py" || die "Admin service-config API is missing."
     grep -q '仅管理员可以修改服务配置' "${SERVER_DIR}/app.py" || die "Admin service-config API authorization is missing."
     grep -q 'loadServiceConfig()' "${SERVER_DIR}/static/js/admin.js" || die "Admin service-config loader is missing."
     grep -q 'syncHaServiceAddress(applied)' "${SERVER_DIR}/static/js/admin.js" || die "HA service-address synchronization is missing."
+    grep -q 'toggleServiceConfig' "${SERVER_DIR}/static/js/admin.js" || die "Admin service-config toggle is missing."
+    grep -q 'serviceRiskWarning' "${SERVER_DIR}/static/js/admin.js" || die "Public listener risk warning is missing."
+    grep -q '监听所有网卡可能扩大访问范围' "${SERVER_DIR}/static/js/admin.js" || die "Wildcard listener warning is missing."
+    grep -q '该地址可能允许公网直接访问' "${SERVER_DIR}/static/js/admin.js" || die "Public listener warning text is missing."
+    grep -q '监听地址（可选）' "${SERVER_DIR}/templates/admin.html" || die "Optional listener address input is missing."
+    grep -q 'data-toggle-service-config' "${SERVER_DIR}/templates/admin.html" || die "Admin listener toggle button is missing."
+    grep -q 'id="service-config-panel"' "${SERVER_DIR}/templates/admin.html" || die "Collapsible service-config panel is missing."
+    grep -q 'id="service-config-status"' "${SERVER_DIR}/templates/admin.html" || die "Service-config status summary is missing."
+    grep -q '.service-config-panel.is-open' "${SERVER_DIR}/static/css/style.css" || die "Service-config expansion animation is missing."
+    grep -q '默认留空，仅通过飞牛统一网关访问' "${SERVER_DIR}/templates/admin.html" || die "Gateway-only listener guidance is missing."
+    grep -q '目前仅通过飞牛统一网关访问，建议按需设置监听地址' "${SERVER_DIR}/templates/admin.html" || die "Gateway-only listener summary is missing."
+    grep -q '目前仅通过飞牛统一网关访问，建议按需设置监听地址' "${SERVER_DIR}/static/js/admin.js" || die "Gateway-only listener fallback summary is missing."
+    grep -q '#toast' "${SERVER_DIR}/static/css/style.css" || die "PWA toast styling is missing."
+    grep -q 'env(safe-area-inset-top' "${SERVER_DIR}/static/css/style.css" || die "PWA toast safe-area offset is missing."
+    grep -q 'clearTimeout(toastHideTimer)' "${SERVER_DIR}/static/js/app.js" || die "Toast timer reset is missing."
+    grep -q 'void toast.offsetWidth' "${SERVER_DIR}/static/js/app.js" || die "Toast animation restart is missing."
+    grep -q 'requestAnimationFrame' "${SERVER_DIR}/static/js/app.js" || die "Toast transition scheduling is missing."
+    grep -q 'visibility: hidden' "${SERVER_DIR}/static/css/style.css" || die "Toast hidden state is missing."
+    grep -q 'transform: translate3d(0, -12px, 0)' "${SERVER_DIR}/static/css/style.css" || die "Toast upward exit state is missing."
+    if grep -q 'animation: slideIn' "${SERVER_DIR}/static/css/style.css"; then
+        die "Legacy toast keyframe animation is still packaged."
+    fi
+    grep -q '#fab-menu.is-open .fab-item' "${SERVER_DIR}/static/css/style.css" || die "Stable FAB state animation is missing."
+    grep -q 'buttonsSignature' "${SERVER_DIR}/static/js/dashboard.js" || die "Quick-record button DOM stability guard is missing."
+    grep -q 'type="button" class="quick-btn' "${SERVER_DIR}/static/js/dashboard.js" || die "Quick-record button type is missing."
+    grep -q 'window.scrollTo(0, scrollY)' "${SERVER_DIR}/static/js/dashboard.js" || die "Quick-record scroll preservation is missing."
+    grep -q "menu.classList.add('is-open')" "${SERVER_DIR}/templates/base.html" || die "FAB class toggle is missing."
     grep -q 'data-save-service-config' "${SERVER_DIR}/templates/admin.html" || die "Admin service-config save control is missing."
     grep -q 'BABY_TRACKER_CMD_MAIN' "${SERVER_DIR}/app.py" || die "Packaged app cannot locate the service launcher."
     grep -q 'BABY_TRACKER_CMD_MAIN' "${PACK_DIR}/cmd/main" || die "Launcher command path is not passed to the app runtime."
@@ -206,10 +233,9 @@ PY
     if grep -q 'LEGACY_LAN_CIDRS_FILE\|migrate_data_dir\|pre-data-share' "${PACK_DIR}/cmd/main"; then
         die "Legacy install/upgrade compatibility logic is still packaged."
     fi
-    grep -q -- '--bind "${bind_address}:${service_port}"' "${PACK_DIR}/cmd/main" || die "Service port must bind to the configured LAN address."
-    if grep -q -- '--bind "0.0.0.0:${service_port}"' "${PACK_DIR}/cmd/main"; then
-        die "Launcher must not bind the service port to 0.0.0.0."
-    fi
+    grep -q 'gunicorn_args+=(--bind "${bind_address}:${service_port}")' "${PACK_DIR}/cmd/main" || die "Optional TCP listener configuration is missing."
+    grep -q 'gunicorn_args=(--bind "unix:${GATEWAY_SOCKET}")' "${PACK_DIR}/cmd/main" || die "Gateway socket default listener is missing."
+    grep -q 'validate_service_values' "${PACK_DIR}/cmd/main" || die "Optional service configuration command is missing."
     grep -q 'GATEWAY_SOCKET' "${PACK_DIR}/cmd/main" || die "Gateway Unix Socket is missing."
     grep -q 'GatewayPrefixMiddleware' "${SERVER_DIR}/wsgi.py" || die "Gateway prefix middleware is missing."
     if grep -q 'LanAccessMiddleware' "${SERVER_DIR}/wsgi.py"; then
@@ -227,29 +253,6 @@ PY
     jq empty "${PACK_DIR}/config/resource"
     jq -e '."data-share".shares | any(.name == "baby-tracker/data")' "${PACK_DIR}/config/resource" >/dev/null || die "data-share resource is incomplete."
     jq empty "${PACK_DIR}/app/ui/config"
-    jq empty "${PACK_DIR}/wizard/install"
-    jq -e 'any(.[].items[]; .field == "wizard_port") and any(.[].items[]; .field == "wizard_bind_address") and all(.[].items[]; (.field == null or .field == "wizard_port" or .field == "wizard_bind_address"))' "${PACK_DIR}/wizard/install" >/dev/null || die "Install wizard must configure the service port and LAN bind address."
-    grep -q '引导设置管理密码' "${PACK_DIR}/wizard/install" || die "Install wizard is missing the admin password setup guidance."
-    jq -e 'any(.[].items[]; .field == "wizard_bind_address" and (([.rules[] | has("min") or has("max")] | any) | not) and any(.rules[]; has("pattern")))' "${PACK_DIR}/wizard/install" >/dev/null || die "LAN bind address wizard validation is missing."
-    jq -e 'any(.[].items[]; .field == "wizard_port" and (([.rules[] | has("min") or has("max")] | any) | not) and any(.rules[]; has("pattern")))' "${PACK_DIR}/wizard/install" >/dev/null || die "Port wizard validation must use pattern-only numeric range rules."
-    port_pattern="$(jq -r '.[].items[] | select(.field == "wizard_port") | .rules[] | select(.pattern != null) | .pattern' "${PACK_DIR}/wizard/install")"
-    for port in 1024 8964 65535; do
-        regex_matches "${port_pattern}" "${port}" || die "Port pattern rejects ${port}."
-    done
-    for port in 1023 65536; do
-        if regex_matches "${port_pattern}" "${port}"; then
-            die "Port pattern accepts out-of-range value ${port}."
-        fi
-    done
-    bind_pattern="$(jq -r '.[].items[] | select(.field == "wizard_bind_address") | .rules[] | select(.pattern != null) | .pattern' "${PACK_DIR}/wizard/install")"
-    for address in '192.168.1.10' '10.1.2.3' '172.16.8.9'; do
-        regex_matches "${bind_pattern}" "${address}" || die "Bind address pattern rejects ${address}."
-    done
-    for address in '999.1.1.1' '192.168.1.10/24' '192.168.1.10,10.0.0.1'; do
-        if regex_matches "${bind_pattern}" "${address}"; then
-            die "Bind address pattern accepts invalid value ${address}."
-        fi
-    done
     jq -e '.".url"."baby-tracker.main" | .gatewayPrefix == "/app/baby-tracker" and .gatewaySocket == "app.sock" and .url == "/app/baby-tracker"' "${PACK_DIR}/app/ui/config" >/dev/null || die "Unified gateway desktop entry is incomplete."
     bash -n "${PACK_DIR}/cmd/main"
     bash -n "${PACK_DIR}/cmd/install_callback"

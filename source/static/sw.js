@@ -1,10 +1,13 @@
-const CACHE_NAME = 'baby-tracker-v1';
+const CACHE_NAME = 'baby-tracker-v3';
 const STATIC_ASSETS = [
     '/',
     '/static/css/style.css',
     '/static/js/app.js',
     '/static/js/dashboard.js',
-    '/static/manifest.json'
+    '/static/manifest.json',
+    '/static/icons/icon-180.png',
+    '/static/icons/icon-192.png',
+    '/static/icons/icon-512.png'
 ];
 
 // 安装：预缓存核心资源

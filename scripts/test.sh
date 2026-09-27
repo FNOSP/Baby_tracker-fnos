@@ -42,6 +42,17 @@ if image.size != (64, 64) or bbox is None or bbox[2] - bbox[0] < 60 or bbox[3] -
     raise SystemExit(f'invalid 64px icon: size={image.size}, bbox={bbox}')
 if image.getpixel((32, 2))[3] == 0 or image.getpixel((2, 32))[3] == 0:
     raise SystemExit('64px icon appears cropped')
+
+for size in (180, 192, 512):
+    path = Path(f'source/static/icons/icon-{size}.png')
+    image = Image.open(path).convert('RGBA')
+    bbox = image.getbbox()
+    if image.size != (size, size) or bbox is None:
+        raise SystemExit(f'invalid PWA icon: path={path}, size={image.size}, bbox={bbox}')
+    if image.getpixel((size // 2, size // 2))[3] == 0:
+        raise SystemExit(f'PWA icon has a transparent center: {path}')
+    if image.getpixel((0, 0))[3] != 255 or image.getpixel((size - 1, size - 1))[3] != 255:
+        raise SystemExit(f'PWA icon has transparent corners and may render with a black ring: {path}')
 PY
 
 log "Running fnOS source unit tests"
@@ -68,12 +79,11 @@ if [ ! -s "${PACK_SERVER_DIR}/wsgi.py" ]; then
     exit 0
 fi
 
-log "Validating LAN bind-only access configuration"
-grep -q -- '--bind "${bind_address}:${service_port}"' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-if grep -q -- '--bind "0.0.0.0:${service_port}"' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"; then
-    log "The launcher still binds the service port to 0.0.0.0"
-    exit 1
-fi
+log "Validating optional TCP listener configuration"
+[ ! -e "${ROOT_DIR}/packaging/baby-tracker/wizard/install" ]
+grep -q 'gunicorn_args=(--bind "unix:${GATEWAY_SOCKET}")' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
+grep -q 'gunicorn_args+=(--bind "${bind_address}:${service_port}")' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
+grep -q 'validate_service_values' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
 if grep -q 'LanAccessMiddleware' "${PACK_SERVER_DIR}/wsgi.py"; then
     log "The packaged WSGI app still contains the obsolete CIDR allowlist middleware"
     exit 1
@@ -87,6 +97,21 @@ if grep -q "host='0.0.0.0'" "${PACK_SERVER_DIR}/app.py"; then
     log "The development server fallback is not loopback-only"
     exit 1
 fi
+grep -q 'clearTimeout(toastHideTimer)' "${PACK_SERVER_DIR}/static/js/app.js"
+grep -q 'void toast.offsetWidth' "${PACK_SERVER_DIR}/static/js/app.js"
+grep -q 'requestAnimationFrame' "${PACK_SERVER_DIR}/static/js/app.js"
+grep -q 'visibility: hidden' "${PACK_SERVER_DIR}/static/css/style.css"
+grep -q 'transform: translate3d(0, -12px, 0)' "${PACK_SERVER_DIR}/static/css/style.css"
+if grep -q 'animation: slideIn' "${PACK_SERVER_DIR}/static/css/style.css"; then
+    log "Legacy toast keyframe animation is still packaged"
+    exit 1
+fi
+grep -q '#fab-menu.is-open .fab-item' "${PACK_SERVER_DIR}/static/css/style.css"
+grep -q 'buttonsSignature' "${PACK_SERVER_DIR}/static/js/dashboard.js"
+grep -q 'type="button" class="quick-btn' "${PACK_SERVER_DIR}/static/js/dashboard.js"
+grep -q 'window.scrollTo(0, scrollY)' "${PACK_SERVER_DIR}/static/js/dashboard.js"
+grep -q "menu.classList.add('is-open')" "${PACK_SERVER_DIR}/templates/base.html"
+grep -q '.service-config-panel.is-open' "${PACK_SERVER_DIR}/static/css/style.css"
 
 test_python="${VENV_DIR}/bin/python"
 (
@@ -96,19 +121,28 @@ test_python="${VENV_DIR}/bin/python"
     export TRIM_PKGTMP="${BUILD_DIR}/launcher-test/tmp"
     source "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
     find_python() { printf '%s' "${test_python}"; }
-    normalized="$(normalize_bind_address ' 192.168.1.10 ')"
-    [ "${normalized}" = '192.168.1.10' ]
-    wizard_bind_address='192.168.1.20'
-    wizard_port='18965'
-    local_ipv4_addresses() { printf '%s\n' '192.168.1.20'; }
-    validate_install_values
-    [ "$(cat "${TRIM_PKGETC}/bind_address")" = '192.168.1.20' ]
-    [ "$(cat "${TRIM_PKGETC}/service_port")" = '18965' ]
-    for address in '0.0.0.0' '127.0.0.1' '8.8.8.8' '999.1.1.1'; do
+    for address in '0.0.0.0' '127.0.0.1' '8.8.8.8' '192.168.1.10'; do
+        normalized="$(normalize_bind_address "  ${address}  ")"
+        [ "${normalized}" = "${address}" ]
+    done
+    for address in '999.1.1.1' '224.0.0.1'; do
         if normalize_bind_address "${address}" >/dev/null 2>&1; then
             exit 1
         fi
     done
+    wizard_bind_address='0.0.0.0'
+    wizard_port='18965'
+    validate_service_values
+    [ "$(cat "${TRIM_PKGETC}/bind_address")" = '0.0.0.0' ]
+    [ "$(cat "${TRIM_PKGETC}/service_port")" = '18965' ]
+    wizard_bind_address=''
+    wizard_port=''
+    validate_service_values
+    [ ! -e "${TRIM_PKGETC}/bind_address" ]
+    [ ! -e "${TRIM_PKGETC}/service_port" ]
+    if (wizard_bind_address='192.168.1.20'; wizard_port=''; validate_service_values) >/dev/null 2>&1; then
+        exit 1
+    fi
 )
 
 log "Validating administrator user-row action visibility"
@@ -192,6 +226,8 @@ if printf '%s' "${direct_login_page}" | grep -q 'gateway-login-button'; then
 fi
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/css/style.css" >/dev/null
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-192.png" >/dev/null
+curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-180.png" >/dev/null
+curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-512.png" >/dev/null
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/tailwindcss.min.js" >/dev/null
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/lucide.min.js" >/dev/null
 curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/chart.js-4.4.7.min.js" >/dev/null
@@ -374,6 +410,10 @@ printf '%s' "${gateway_admin_page}" | grep -q '管理配置'
 printf '%s' "${gateway_admin_page}" | grep -q 'id="admin-bind-address"'
 printf '%s' "${gateway_admin_page}" | grep -q 'id="admin-service-port"'
 printf '%s' "${gateway_admin_page}" | grep -q 'data-save-service-config'
+printf '%s' "${gateway_admin_page}" | grep -q 'data-toggle-service-config'
+printf '%s' "${gateway_admin_page}" | grep -q 'id="service-config-panel"'
+printf '%s' "${gateway_admin_page}" | grep -q 'id="service-config-status"'
+printf '%s' "${gateway_admin_page}" | grep -q 'service-config-warning'
 gateway_service_config="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" \
     -H 'X-Trim-Userid: 1000' \
@@ -382,6 +422,7 @@ gateway_service_config="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     "http://localhost/app/baby-tracker/api/admin/service-config")"
 [ "$(printf '%s' "${gateway_service_config}" | jq -r '.bind_address')" = '192.168.1.10' ]
 [ "$(printf '%s' "${gateway_service_config}" | jq -r '.port')" = "${SMOKE_PORT}" ]
+[ "$(printf '%s' "${gateway_service_config}" | jq -r '.enabled')" = 'true' ]
 gateway_service_config_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" \
     -X PUT \
@@ -401,6 +442,63 @@ done
 [ -f "${SMOKE_ETC_DIR}/restart-called" ]
 [ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '192.168.1.20' ]
 [ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18965' ]
+log "Testing unrestricted listener choices and disabling TCP listening"
+gateway_wildcard_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
+    -b "${SMOKE_COOKIE}" \
+    -X PUT \
+    -H 'Content-Type: application/json' \
+    -H 'X-Trim-Userid: 1000' \
+    -H 'X-Trim-Username: fnosadmin' \
+    -H 'X-Trim-Isadmin: true' \
+    -d '{"bind_address":"0.0.0.0","port":"18966"}' \
+    "http://localhost/app/baby-tracker/api/admin/service-config")"
+[ "$(printf '%s' "${gateway_wildcard_update}" | jq -r '.bind_address')" = '0.0.0.0' ]
+[ "$(printf '%s' "${gateway_wildcard_update}" | jq -r '.port')" = '18966' ]
+for _ in $(seq 1 20); do
+    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = '0.0.0.0:18966' ] && break
+    sleep 0.1
+done
+[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = '0.0.0.0:18966' ]
+[ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '0.0.0.0' ]
+[ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18966' ]
+
+gateway_public_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
+    -b "${SMOKE_COOKIE}" \
+    -X PUT \
+    -H 'Content-Type: application/json' \
+    -H 'X-Trim-Userid: 1000' \
+    -H 'X-Trim-Username: fnosadmin' \
+    -H 'X-Trim-Isadmin: true' \
+    -d '{"bind_address":"8.8.8.8","port":"18967"}' \
+    "http://localhost/app/baby-tracker/api/admin/service-config")"
+[ "$(printf '%s' "${gateway_public_update}" | jq -r '.bind_address')" = '8.8.8.8' ]
+[ "$(printf '%s' "${gateway_public_update}" | jq -r '.port')" = '18967' ]
+for _ in $(seq 1 20); do
+    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = '8.8.8.8:18967' ] && break
+    sleep 0.1
+done
+[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = '8.8.8.8:18967' ]
+[ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '8.8.8.8' ]
+[ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18967' ]
+
+gateway_disabled_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
+    -b "${SMOKE_COOKIE}" \
+    -X PUT \
+    -H 'Content-Type: application/json' \
+    -H 'X-Trim-Userid: 1000' \
+    -H 'X-Trim-Username: fnosadmin' \
+    -H 'X-Trim-Isadmin: true' \
+    -d '{"bind_address":"","port":""}' \
+    "http://localhost/app/baby-tracker/api/admin/service-config")"
+[ "$(printf '%s' "${gateway_disabled_update}" | jq -r '.bind_address')" = '' ]
+[ "$(printf '%s' "${gateway_disabled_update}" | jq -r '.port')" = '' ]
+for _ in $(seq 1 20); do
+    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = 'disabled' ] && break
+    sleep 0.1
+done
+[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = 'disabled' ]
+[ ! -e "${SMOKE_ETC_DIR}/bind_address" ]
+[ ! -e "${SMOKE_ETC_DIR}/service_port" ]
 gateway_admin_change_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" \
     -X PUT \

@@ -17,11 +17,12 @@ def rounded_rect(draw, box, radius, fill, factor):
     )
 
 
-def render_icon(size: int) -> Image.Image:
+def render_icon(size: int, opaque: bool = False) -> Image.Image:
     supersample = 16
     canvas_size = size * supersample
     factor = canvas_size / 256
-    image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    background = (0, 185, 130, 255) if opaque else (0, 0, 0, 0)
+    image = Image.new("RGBA", (canvas_size, canvas_size), background)
     draw = ImageDraw.Draw(image)
 
     rounded_rect(draw, (8, 8, 248, 248), 56, "#00b982", factor)
@@ -38,10 +39,14 @@ def render_icon(size: int) -> Image.Image:
 
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
-    output_dir = root / "packaging" / "build-assets" / "icons"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    render_icon(256).save(output_dir / "icon_256.png", "PNG", optimize=True)
-    render_icon(64).save(output_dir / "icon_64.png", "PNG", optimize=True)
+    outputs = [
+        (root / "packaging" / "build-assets" / "icons", "icon_", ((64, False), (256, False))),
+        (root / "source" / "static" / "icons", "icon-", ((180, True), (192, True), (512, True))),
+    ]
+    for output_dir, prefix, sizes in outputs:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for size, opaque in sizes:
+            render_icon(size, opaque).save(output_dir / f"{prefix}{size}.png", "PNG", optimize=True)
 
 
 if __name__ == "__main__":

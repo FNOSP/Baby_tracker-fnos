@@ -15,17 +15,25 @@ def main() -> int:
     port = os.environ.get("wizard_port", "").strip()
 
     if command == "configure":
-        if not bind_address or not port:
+        if bool(bind_address) != bool(port):
             return 2
         directory = config_dir()
         directory.mkdir(parents=True, exist_ok=True)
+        if not bind_address and not port:
+            for name in ("bind_address", "service_port"):
+                try:
+                    (directory / name).unlink()
+                except FileNotFoundError:
+                    pass
+            return 0
         (directory / "bind_address").write_text(f"{bind_address}\n", encoding="utf-8")
         (directory / "service_port").write_text(f"{port}\n", encoding="utf-8")
         return 0
 
     if command == "restart":
+        value = f"{bind_address}:{port}" if bind_address and port else "disabled"
         (config_dir() / "restart-called").write_text(
-            f"{bind_address}:{port}\n",
+            f"{value}\n",
             encoding="utf-8",
         )
         return 0

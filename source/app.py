@@ -1647,12 +1647,13 @@ def get_trends():
     })
 
 
-# ── Vaccine Schedule (2024 国家免疫规划) ──────────────────
+# ── Vaccine Schedule (2026 国家免疫规划) ──────────────────
 
-# 国家免疫规划疫苗儿童免疫程序表（2024年版）
+# 国家免疫规划疫苗儿童免疫程序表（2026年版）
 # age_months: 接种月龄（0=出生时, 1=1月龄, ...）
 # dose_index: 第几剂（1-based）
-# 注：自2025年1月1日起，百白破疫苗共接种5剂次
+# 注：百白破疫苗共接种5剂次；MPSV-AC 剂次按该疫苗品种单独计数
+VACCINE_SCHEDULE_VERSION = '2026年版'
 VACCINE_SCHEDULE = [
     # 乙肝疫苗 HepB - 出生时/1月龄/6月龄
     {"name": "乙肝疫苗", "short": "HepB", "age_months": 0, "dose_index": 1, "note": "出生24小时内"},
@@ -1666,10 +1667,10 @@ VACCINE_SCHEDULE = [
     # 脊灰减毒活疫苗 bOPV - 4月龄/4岁
     {"name": "脊灰减毒活疫苗", "short": "bOPV", "age_months": 4, "dose_index": 3, "note": ""},
     {"name": "脊灰减毒活疫苗", "short": "bOPV", "age_months": 48, "dose_index": 4, "note": "4岁"},
-    # 百白破疫苗 DTaP - 2025新规：2/4/6月龄+18月龄+6岁（共5剂）
-    {"name": "百白破疫苗", "short": "DTaP", "age_months": 2, "dose_index": 1, "note": "2025新规"},
-    {"name": "百白破疫苗", "short": "DTaP", "age_months": 4, "dose_index": 2, "note": "2025新规"},
-    {"name": "百白破疫苗", "short": "DTaP", "age_months": 6, "dose_index": 3, "note": "2025新规"},
+    # 百白破疫苗 DTaP - 2/4/6月龄+18月龄+6岁（共5剂）
+    {"name": "百白破疫苗", "short": "DTaP", "age_months": 2, "dose_index": 1, "note": "基础免疫"},
+    {"name": "百白破疫苗", "short": "DTaP", "age_months": 4, "dose_index": 2, "note": "基础免疫"},
+    {"name": "百白破疫苗", "short": "DTaP", "age_months": 6, "dose_index": 3, "note": "基础免疫"},
     {"name": "百白破疫苗", "short": "DTaP", "age_months": 18, "dose_index": 4, "note": "18月龄加强"},
     {"name": "百白破疫苗", "short": "DTaP", "age_months": 72, "dose_index": 5, "note": "6岁加强"},
     # A群流脑多糖疫苗 MPSV-A - 6月龄/9月龄
@@ -1678,22 +1679,25 @@ VACCINE_SCHEDULE = [
     # A群C群流脑多糖疫苗 MPSV-AC - 3岁/6岁
     {"name": "A群C群流脑多糖疫苗", "short": "MPSV-AC", "age_months": 36, "dose_index": 1, "note": "3岁"},
     {"name": "A群C群流脑多糖疫苗", "short": "MPSV-AC", "age_months": 72, "dose_index": 2, "note": "6岁"},
-    # 麻腮风疫苗 MMR - 8月龄/18月龄
+    # 麻腮风疫苗 MMR - 8月龄/2岁
     {"name": "麻腮风疫苗", "short": "MMR", "age_months": 8, "dose_index": 1, "note": ""},
-    {"name": "麻腮风疫苗", "short": "MMR", "age_months": 18, "dose_index": 2, "note": ""},
+    {"name": "麻腮风疫苗", "short": "MMR", "age_months": 24, "dose_index": 2, "note": "2岁"},
     # 乙脑减毒活疫苗 JE-L - 8月龄/2岁
     {"name": "乙脑减毒活疫苗", "short": "JE-L", "age_months": 8, "dose_index": 1, "note": ""},
     {"name": "乙脑减毒活疫苗", "short": "JE-L", "age_months": 24, "dose_index": 2, "note": "2岁"},
-    # 乙脑灭活疫苗 JE-I - 8月龄2剂/2岁/6岁（替代方案）
+    # 乙脑灭活疫苗 JE-I - 8月龄2剂/2岁/13岁（替代方案）
     {"name": "乙脑灭活疫苗", "short": "JE-I", "age_months": 8, "dose_index": 1, "note": "减毒替代方案"},
     {"name": "乙脑灭活疫苗", "short": "JE-I", "age_months": 8, "dose_index": 2, "note": "间隔7-10天"},
     {"name": "乙脑灭活疫苗", "short": "JE-I", "age_months": 24, "dose_index": 3, "note": "2岁"},
-    {"name": "乙脑灭活疫苗", "short": "JE-I", "age_months": 72, "dose_index": 4, "note": "6岁"},
+    {"name": "乙脑灭活疫苗", "short": "JE-I", "age_months": 156, "dose_index": 4, "note": "13岁"},
     # 甲肝减毒活疫苗 HepA-L - 18月龄
     {"name": "甲肝减毒活疫苗", "short": "HepA-L", "age_months": 18, "dose_index": 1, "note": "18月龄"},
     # 甲肝灭活疫苗 HepA-I - 18月龄/2岁（替代方案）
     {"name": "甲肝灭活疫苗", "short": "HepA-I", "age_months": 18, "dose_index": 1, "note": "减毒替代方案"},
     {"name": "甲肝灭活疫苗", "short": "HepA-I", "age_months": 24, "dose_index": 2, "note": "间隔6月"},
+    # 双价人乳头瘤病毒疫苗 2vHPV - 13岁2剂
+    {"name": "双价人乳头瘤病毒疫苗", "short": "2vHPV", "age_months": 156, "dose_index": 1, "note": "13岁"},
+    {"name": "双价人乳头瘤病毒疫苗", "short": "2vHPV", "age_months": 156, "dose_index": 2, "note": "13岁，与第1剂间隔6个月"},
 ]
 
 # ── Health Follow-up Schedule (0-6岁儿童健康随访) ──────────
@@ -1726,7 +1730,7 @@ HEALTH_FOLLOWUP_SCHEDULE = [
 
 @app.route('/vaccine')
 def vaccine_page():
-    return render_template('vaccine.html', active_page='vaccine')
+    return render_template('vaccine.html', active_page='vaccine', schedule_version=VACCINE_SCHEDULE_VERSION)
 
 
 @app.route('/api/vaccine/schedule', methods=['GET'])
@@ -2691,58 +2695,6 @@ def _ha_do_press(btn_id):
         }
     })
 
-
-# ── PWA Icon Generation ──────────────────────────────────
-
-@app.route('/static/icons/icon-<size>.png')
-def pwa_icon(size):
-    """动态生成 PWA 图标 - 无边框全出血设计"""
-    try:
-        size = int(size)
-    except ValueError:
-        size = 192
-    size = min(max(size, 48), 512)
-
-    from PIL import Image, ImageDraw
-
-    # 无边框：背景直接填满，无 margin
-    bg_color = (0, 229, 160, 255)  # accent color #00e5a0
-    img = Image.new('RGBA', (size, size), bg_color)
-    draw = ImageDraw.Draw(img)
-
-    # 奶瓶图标 - 居中偏上
-    cx = size // 2
-    cy = int(size * 0.48)
-    unit = size / 100
-
-    # 瓶身
-    bottle_left = cx - 16 * unit
-    bottle_right = cx + 16 * unit
-    bottle_top = cy - 22 * unit
-    bottle_bottom = cy + 24 * unit
-    neck_left = cx - 8 * unit
-    neck_right = cx + 8 * unit
-    neck_top = cy - 32 * unit
-
-    # 瓶颈
-    draw.rectangle([neck_left, neck_top, neck_right, bottle_top], fill='white')
-    # 瓶身
-    draw.rounded_rectangle([bottle_left, bottle_top, bottle_right, bottle_bottom],
-                           radius=6 * unit, fill='white')
-    # 奶嘴
-    nipple_top = cy - 38 * unit
-    draw.ellipse([cx - 6 * unit, nipple_top, cx + 6 * unit, neck_top + 3 * unit],
-                 fill='white')
-    # 液面
-    liquid_top = cy - 2 * unit
-    draw.rounded_rectangle([bottle_left + 3 * unit, liquid_top,
-                            bottle_right - 3 * unit, bottle_bottom - 3 * unit],
-                           radius=4 * unit, fill=(0, 180, 120, 200))
-
-    buf = BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    return send_file(buf, mimetype='image/png')
 
 _db_initialized = False
 _db_init_lock = threading.Lock()

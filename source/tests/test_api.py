@@ -139,6 +139,52 @@ class ApiTestCase(unittest.TestCase):
         response = self.client.post(f'/api/ha/button/{button_id}', json={'state': 'on'})
         self.assertEqual(response.status_code, 401)
 
+    def test_default_vaccine_schedule_matches_2026(self):
+        def ages(short):
+            return [
+                item['age_months']
+                for item in app_module.VACCINE_SCHEDULE
+                if item['short'] == short
+            ]
+
+        self.assertEqual(app_module.VACCINE_SCHEDULE_VERSION, '2026年版')
+        self.assertEqual(len(app_module.VACCINE_SCHEDULE), 30)
+        self.assertEqual(ages('MMR'), [8, 24])
+        self.assertEqual(ages('JE-I'), [8, 8, 24, 156])
+        self.assertEqual(ages('2vHPV'), [156, 156])
+        self.assertFalse(
+            any('2025新规' in item['note'] for item in app_module.VACCINE_SCHEDULE)
+        )
+
+        page = self.client.get('/vaccine')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('2026年版', page.get_data(as_text=True))
+
+    def test_vaccine_schedule_api_returns_2026_dates(self):
+        birth = date.today() - timedelta(days=365)
+        with app_module.app.app_context():
+            db = app_module.get_db()
+            db.execute("DELETE FROM babies")
+            db.execute(
+                "INSERT INTO babies (name, gender, birth_date, weight) VALUES (?, ?, ?, ?)",
+                ('宝宝', 'male', birth.isoformat(), 3.0),
+            )
+            db.commit()
+
+        response = self.client.get('/api/vaccine/schedule')
+        self.assertEqual(response.status_code, 200)
+        schedule = response.get_json()['schedule']
+        mmr_second = next(
+            item for item in schedule
+            if item['short'] == 'MMR' and item['dose_index'] == 2
+        )
+        expected_due = (birth + timedelta(days=int(24 * 30.44))).isoformat()
+        self.assertEqual(mmr_second['due_date'], expected_due)
+        self.assertEqual(
+            [item['dose_index'] for item in schedule if item['short'] == '2vHPV'],
+            [1, 2],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

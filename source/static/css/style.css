@@ -112,12 +112,72 @@ body { -webkit-font-smoothing: antialiased; }
     -webkit-tap-highlight-color: transparent;
 }
 
+#fab-menu {
+    pointer-events: none;
+    visibility: hidden;
+    transition: visibility 0s linear 0.35s;
+}
+#fab-menu.is-open {
+    pointer-events: auto;
+    visibility: visible;
+    transition-delay: 0s;
+}
+#fab-menu .fab-item {
+    transform: translateY(16px) scale(0.5);
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+}
+#fab-menu.is-open .fab-item {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+}
+#fab-menu.is-open .fab-item:nth-child(1) { transition-delay: 0ms; }
+#fab-menu.is-open .fab-item:nth-child(2) { transition-delay: 30ms; }
+#fab-menu.is-open .fab-item:nth-child(3) { transition-delay: 60ms; }
+#fab-menu.is-open .fab-item:nth-child(4) { transition-delay: 90ms; }
+#fab-menu.is-open .fab-item:nth-child(5) { transition-delay: 120ms; }
+#fab-menu.is-open .fab-item:nth-child(6) { transition-delay: 150ms; }
+#fab-menu.is-open .fab-item:nth-child(7) { transition-delay: 180ms; }
+
 /* ── Cards ───────────────────────────────────────────── */
 .card {
     background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: 12px; padding: 20px; transition: all 0.3s;
 }
 .card:hover { border-color: var(--c-border-hover); }
+
+/* ── Admin Service Configuration ─────────────────────── */
+.service-config-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition:
+        grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.2s ease,
+        transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        visibility 0s linear 0.3s;
+}
+.service-config-panel.is-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay: 0s;
+}
+.service-config-panel-inner {
+    min-height: 0;
+    overflow: hidden;
+}
+.service-config-toggle-icon {
+    transition: transform 0.25s ease;
+}
+[data-toggle-service-config][aria-expanded="true"] .service-config-toggle-icon {
+    transform: rotate(180deg);
+}
 
 /* ── Progress Ring ───────────────────────────────────── */
 .ring-bg { stroke: var(--c-border); }
@@ -296,6 +356,12 @@ body { -webkit-font-smoothing: antialiased; }
 }
 
 /* ── Type Selector ───────────────────────────────────── */
+.quick-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
 .type-btn {
     display: flex; flex-direction: column; align-items: center;
     gap: 6px; padding: 12px; border-radius: 12px;
@@ -316,16 +382,30 @@ body { -webkit-font-smoothing: antialiased; }
 .stepper-btn:active { transform: scale(0.95); }
 
 /* ── Toast Animation ─────────────────────────────────── */
+#toast {
+    top: calc(1rem + env(safe-area-inset-top, 0px));
+    right: calc(1rem + env(safe-area-inset-right, 0px));
+    width: min(24rem, calc(100vw - 2rem));
+    opacity: 0;
+    visibility: hidden;
+    transform: translate3d(0, -12px, 0);
+    pointer-events: none;
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    transition:
+        opacity 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+        visibility 0s linear 0.42s;
+}
+#toast > div { min-width: 0; }
+@media (display-mode: standalone) {
+    #toast { top: calc(3.25rem + env(safe-area-inset-top, 0px)); }
+}
 #toast.show {
-    animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-in 2.2s forwards;
-}
-@keyframes slideIn {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-}
-@keyframes fadeOut {
-    from { opacity: 1; }
-    to { opacity: 0; }
+    opacity: 1;
+    visibility: visible;
+    transform: translate3d(0, 0, 0);
+    transition-delay: 0s;
 }
 
 /* ── Fade In ─────────────────────────────────────────── */

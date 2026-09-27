@@ -1,5 +1,5 @@
 appname               = baby-tracker
-version               = 1.6.2
+version               = 1.6.7
 display_name          = Baby Tracker
 desc                  = <p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p><p>应用支持 Home Assistant 集成：在“管理 > 管理配置”生成 API 密钥，然后在“Home Assistant 集成”中配置服务地址并生成 YAML。</p><p><strong>重置管理密码：</strong>从飞牛桌面重新进入应用，通过统一网关一键登录，在“管理 > 管理配置”点击“修改管理密码”。</p>
 source                = thirdparty
@@ -16,4 +16,4 @@ service_port          = 8964
 checkport             = false
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 优化应用介绍，保留基础功能、Home Assistant 集成与管理密码重置说明，删除端口监听及旧版本环境说明。
+changelog             = 修复 iOS PWA 图标透明边缘产生的黑圈；修复快速记录连续点击时页面自动上移；保留安装兼容性、Toast 与监听配置优化。

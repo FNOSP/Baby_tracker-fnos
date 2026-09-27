@@ -96,9 +96,9 @@ resolve_port() {
         port="$(head -n 1 "${PORT_FILE}" | tr -d '[:space:]')"
     fi
     if [ -z "${port}" ]; then
-        port="${TRIM_SERVICE_PORT:-8964}"
+        return 0
     fi
-    valid_port "${port}" || fail "服务端口无效：应为 1024-65535 之间的数字。"
+    valid_port "${port}" || fail "监听端口无效：应为 1024-65535 之间的数字。"
     printf '%s' "${port}"
 }
 
@@ -125,66 +125,12 @@ try:
     address = ipaddress.ip_address(raw)
 except ValueError:
     raise SystemExit(1)
-if (
-    address.version != 4
-    or address.is_unspecified
-    or address.is_loopback
-    or address.is_multicast
-    or address.is_global
-):
+if address.version != 4 or address.is_multicast:
     raise SystemExit(1)
 print(str(address))
 PY
 }
 
-local_ipv4_addresses() {
-    local python_bin
-    python_bin="$(find_python)" || return 1
-    "${python_bin}" - <<'PY'
-import ipaddress
-import shutil
-import subprocess
-
-
-def command_output(command):
-    try:
-        return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
-addresses = []
-ip_command = shutil.which("ip")
-if ip_command:
-    output = command_output([ip_command, "-o", "-4", "addr", "show", "scope", "global"])
-    for line in output.splitlines():
-        parts = line.split()
-        if len(parts) >= 4:
-            addresses.append(parts[3].split("/", 1)[0])
-
-if not addresses:
-    addresses.extend(command_output(["hostname", "-I"]).split())
-
-seen = set()
-for value in addresses:
-    try:
-        address = ipaddress.ip_address(value)
-    except ValueError:
-        continue
-    if address.version != 4 or address.is_unspecified or address.is_loopback:
-        continue
-    rendered = str(address)
-    if rendered not in seen:
-        seen.add(rendered)
-        print(rendered)
-PY
-}
-
-validate_local_bind_address() {
-    local address="$1" addresses
-    addresses="$(local_ipv4_addresses)" || return 1
-    printf '%s\n' "${addresses}" | grep -Fxq "${address}"
-}
 
 write_bind_address_file() {
     local address="$1" temp_file
@@ -202,27 +148,31 @@ resolve_bind_address() {
     if [ -z "${address}" ] && [ -r "${BIND_ADDRESS_FILE}" ]; then
         address="$(head -n 1 "${BIND_ADDRESS_FILE}" | tr -d '[:space:]')"
     fi
-    [ -n "${address}" ] || fail "缺少服务绑定地址，请卸载应用后重新安装并完成安装向导。"
-    normalized="$(normalize_bind_address "${address}")" || fail "监听地址无效：请输入 NAS 局域网 IPv4 地址。"
-    validate_local_bind_address "${normalized}" || fail "监听地址不是本机网卡地址：${normalized}"
-    write_bind_address_file "${normalized}"
+    if [ -z "${address}" ]; then
+        return 0
+    fi
+    normalized="$(normalize_bind_address "${address}")" || fail "监听地址无效：请输入有效的 IPv4 地址。"
     printf '%s' "${normalized}"
 }
 
-validate_install_values() {
-    local port
+validate_service_values() {
+    local bind_address normalized port
     mkdir -p "${TRIM_PKGVAR}" "${TRIM_PKGETC}"
 
+    bind_address="${wizard_bind_address:-}"
     port="${wizard_port:-}"
 
-    valid_port "${port}" || fail "服务端口无效：应为 1024-65535 之间的数字。"
+    if [ -z "${bind_address}" ] && [ -z "${port}" ]; then
+        rm -f "${BIND_ADDRESS_FILE}" "${PORT_FILE}"
+        return 0
+    fi
+    if [ -z "${bind_address}" ] || [ -z "${port}" ]; then
+        fail "监听地址和监听端口需同时填写；两项留空则关闭额外监听。"
+    fi
 
+    valid_port "${port}" || fail "监听端口无效：应为 1024-65535 之间的数字。"
+    normalized="$(normalize_bind_address "${bind_address}")" || fail "监听地址无效：请输入有效的 IPv4 地址。"
     write_port_file "${port}"
-    local bind_address normalized
-    bind_address="${wizard_bind_address:-}"
-    [ -n "${bind_address}" ] || fail "请输入 NAS 局域网监听地址。"
-    normalized="$(normalize_bind_address "${bind_address}")" || fail "监听地址无效：请输入本机局域网 IPv4 地址，不能使用 0.0.0.0、127.0.0.1 或公网地址。"
-    validate_local_bind_address "${normalized}" || fail "监听地址不是本机网卡地址：${normalized}"
     write_bind_address_file "${normalized}"
 }
 
@@ -267,7 +217,6 @@ prepare_runtime() {
 
     local python_bin
     python_bin="$(find_python)" || fail "未找到 python312 运行时；请确认应用依赖已正确安装。"
-    resolve_bind_address >/dev/null
 
     if [ ! -s "${SECRET_FILE}" ]; then
         umask 077
@@ -312,13 +261,20 @@ start_process() {
     local secret_key
     secret_key="$(cat "${SECRET_FILE}")"
 
-    local service_port
-    service_port="$(resolve_port)"
-
-    local bind_address
+    local bind_address gunicorn_args service_port
     bind_address="$(resolve_bind_address)"
+    service_port="$(resolve_port)"
+    if { [ -n "${bind_address}" ] && [ -z "${service_port}" ]; } || { [ -z "${bind_address}" ] && [ -n "${service_port}" ]; }; then
+        fail "监听配置不完整：请同时设置监听地址和监听端口，或两项都留空。"
+    fi
 
-    log_msg "Starting Baby Tracker on ${bind_address}:${service_port}..."
+    gunicorn_args=(--bind "unix:${GATEWAY_SOCKET}")
+    if [ -n "${bind_address}" ] && [ -n "${service_port}" ]; then
+        gunicorn_args+=(--bind "${bind_address}:${service_port}")
+        log_msg "Starting Baby Tracker gateway socket and TCP listener on ${bind_address}:${service_port}..."
+    else
+        log_msg "Starting Baby Tracker gateway socket only; no additional TCP listener configured."
+    fi
     cd "${SERVER_DIR}" || fail "应用目录不存在。"
     if [ -S "${GATEWAY_SOCKET}" ]; then
         rm -f "${GATEWAY_SOCKET}" || fail "无法清理旧的统一网关 Socket。"
@@ -341,8 +297,7 @@ start_process() {
         BABY_TRACKER_BIND_ADDRESS="${bind_address}" \
         BABY_TRACKER_SERVICE_PORT="${service_port}" \
         "${VENV_DIR}/bin/gunicorn" \
-        --bind "unix:${GATEWAY_SOCKET}" \
-        --bind "${bind_address}:${service_port}" \
+        "${gunicorn_args[@]}" \
         --workers 1 \
         --threads 4 \
         --timeout 120 \
@@ -395,14 +350,13 @@ restart_process() {
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 case "${1:-}" in
     install)
-        validate_install_values
         prepare_runtime
         ;;
     prepare)
         prepare_runtime
         ;;
     configure)
-        validate_install_values
+        validate_service_values
         ;;
     start)
         start_process

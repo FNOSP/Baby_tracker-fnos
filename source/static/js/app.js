@@ -5,16 +5,37 @@ function getLocalDate() {
 }
 
 // ── Toast ─────────────────────────────────────────────────
+let toastHideTimer = null;
+let toastShowFrame = null;
+
+function hideToast() {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    toast.classList.remove('show');
+    toast.setAttribute('aria-hidden', 'true');
+    toastHideTimer = null;
+}
+
 function showToast(msg) {
     const toast = document.getElementById('toast');
     const toastMsg = document.getElementById('toast-msg');
+    if (!toast || !toastMsg) return;
+
+    clearTimeout(toastHideTimer);
     toastMsg.textContent = msg;
     toast.classList.remove('hidden');
-    toast.classList.add('show');
-    setTimeout(() => {
-        toast.classList.remove('show');
-        toast.classList.add('hidden');
-    }, 2500);
+    toast.setAttribute('aria-hidden', 'false');
+
+    if (!toast.classList.contains('show')) {
+        if (toastShowFrame) cancelAnimationFrame(toastShowFrame);
+        void toast.offsetWidth;
+        toastShowFrame = requestAnimationFrame(() => {
+            toastShowFrame = null;
+            toast.classList.add('show');
+        });
+    }
+
+    toastHideTimer = setTimeout(hideToast, 3600);
 }
 
 // ── API Helper ───────────────────────────────────────────

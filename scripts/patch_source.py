@@ -246,7 +246,11 @@ def get_service_config():
     if not is_admin():
         return jsonify({'error': '仅管理员可以查看服务配置'}), 403
     bind_address, port = _service_config_values()
-    return jsonify({'bind_address': bind_address, 'port': port})
+    return jsonify({
+        'bind_address': bind_address,
+        'port': port,
+        'enabled': bool(bind_address and port),
+    })
 
 
 @app.route('/api/admin/service-config', methods=['PUT'])
@@ -256,20 +260,21 @@ def update_service_config():
     data = request.get_json(silent=True) or {}
     bind_address = str(data.get('bind_address') or '').strip()
     port = str(data.get('port') or '').strip()
-    try:
-        address = ipaddress.ip_address(bind_address)
-    except ValueError:
-        return jsonify({'error': '绑定地址必须是有效的局域网 IPv4 地址'}), 400
-    if (
-        address.version != 4
-        or address.is_unspecified
-        or address.is_loopback
-        or address.is_multicast
-        or address.is_global
-    ):
-        return jsonify({'error': '绑定地址不能是 0.0.0.0、127.0.0.1 或公网 IPv4 地址'}), 400
-    if not port.isdigit() or not (1024 <= int(port) <= 65535):
-        return jsonify({'error': '监听端口范围应为 1024-65535'}), 400
+
+    if not bind_address and not port:
+        pass
+    elif not bind_address or not port:
+        return jsonify({'error': '监听地址和端口需同时填写，留空则关闭额外监听'}), 400
+    else:
+        try:
+            address = ipaddress.ip_address(bind_address)
+        except ValueError:
+            return jsonify({'error': '监听地址必须是有效的 IPv4 地址'}), 400
+        if address.version != 4 or address.is_multicast:
+            return jsonify({'error': '监听地址必须是有效的 IPv4 地址'}), 400
+        bind_address = str(address)
+        if not port.isdigit() or not (1024 <= int(port) <= 65535):
+            return jsonify({'error': '监听端口范围应为 1024-65535'}), 400
 
     current_bind_address, current_port = _service_config_values()
     launcher_path = os.environ.get('BABY_TRACKER_CMD_MAIN', '').strip()
@@ -292,16 +297,14 @@ def update_service_config():
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
-        return jsonify({'error': '服务配置校验失败，请确认应用运行正常'}), 500
+        return jsonify({'error': '监听配置校验失败，请确认应用运行正常'}), 500
     if validation.returncode != 0:
         detail = (validation.stderr or validation.stdout or '').strip()
-        return jsonify({
-            'error': detail or '服务配置校验失败：绑定地址必须是 NAS 本机局域网 IPv4 地址'
-        }), 400
+        return jsonify({'error': detail or '监听配置校验失败'}), 400
 
     if current_bind_address == bind_address and current_port == port:
         return jsonify({
-            'message': '服务配置未变化',
+            'message': '监听配置未变化',
             'bind_address': bind_address,
             'port': port,
             'restarted': False,
@@ -318,16 +321,17 @@ def update_service_config():
             start_new_session=True,
         )
     except OSError:
-        return jsonify({'error': '服务配置已保存，但自动重启失败，请手动重启应用'}), 500
+        return jsonify({'error': '监听配置已保存，但自动重启失败，请手动重启应用'}), 500
 
-    add_log(
-        '修改服务配置',
-        'service',
-        None,
-        f'服务地址改为 {bind_address}:{port}，应用将自动重启',
+    listening = bool(bind_address and port)
+    detail = (
+        f'额外监听改为 {bind_address}:{port}，应用将自动重启'
+        if listening
+        else '关闭额外 TCP 监听，应用将自动重启'
     )
+    add_log('修改监听配置', 'service', None, detail)
     return jsonify({
-        'message': '服务配置已保存，应用正在重启',
+        'message': '监听配置已保存，应用正在重启' if listening else '已关闭额外监听，应用正在重启',
         'bind_address': bind_address,
         'port': port,
         'restarted': True,

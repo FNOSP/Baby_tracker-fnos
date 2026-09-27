@@ -28,7 +28,7 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库。飞牛适配源码保存在 `sour
 - 首次登录强制设置管理密码，不预置默认管理员。
 - SQLite 数据保存在 `data-share`，升级或卸载不会误删数据。
 - Python 与前端依赖内置，不依赖公网 CDN。
-- 仅监听安装向导指定的局域网 IPv4 地址。
+- 默认仅通过飞牛统一网关访问，可在“管理 > 管理配置”按需开放 TCP 监听。
 - 提供独立的 Home Assistant API Key 鉴权。
 
 ## 安装与使用
@@ -42,8 +42,9 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库。飞牛适配源码保存在 `sour
 appcenter-cli install-fpk ./baby-tracker.fpk
 ```
 
-3. 安装向导中选择局域网 IPv4 地址和监听端口，默认端口为 `8964`。
-4. 从飞牛桌面打开应用，使用当前飞牛账号登录，并设置管理密码。
+3. 从飞牛桌面打开应用，使用当前飞牛账号登录，并设置管理密码。
+
+应用默认只通过飞牛统一网关访问，不额外监听 TCP 端口。需要从局域网或公网直接访问时，在“管理 > 管理配置”同时填写监听地址和端口；使用 `0.0.0.0` 或公网地址前应确认防火墙和访问控制已配置。
 
 数据默认位于共享目录 `baby-tracker/data`，通常对应：
 
@@ -72,8 +73,8 @@ FPK_OFFLINE_WHEELS=1 ./scripts/build.sh
 推送 `v*` 标签后，[release.yml](.github/workflows/release.yml) 会自动构建、测试并发布 FPK：
 
 ```bash
-git tag v1.6.2
-git push origin v1.6.2
+git tag v1.6.7
+git push origin v1.6.7
 ```
 
 标签版本必须与 `packaging/baby-tracker/manifest` 中的 `version` 一致。
