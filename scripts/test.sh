@@ -220,7 +220,7 @@ for _ in $(seq 1 30); do
 done
 
 direct_login_page="$(curl -fsS "http://127.0.0.1:${SMOKE_PORT}/login")"
-if printf '%s' "${direct_login_page}" | grep -q 'gateway-login-button'; then
+if grep -q 'gateway-login-button' <<< "${direct_login_page}"; then
     log "Direct-port login page unexpectedly contains the fnOS gateway sign-in button"
     exit 1
 fi
@@ -270,7 +270,7 @@ gateway_setup_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/setup-password")"
-printf '%s' "${gateway_setup_page}" | grep -q 'setup-password-input'
+grep -q 'setup-password-input' <<< "${gateway_setup_page}"
 gateway_setup_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
     -X POST \
@@ -287,14 +287,14 @@ gateway_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/")"
-printf '%s' "${gateway_page}" | grep -q '/app/baby-tracker/static/css/style.css'
+grep -q '/app/baby-tracker/static/css/style.css' <<< "${gateway_page}"
 gateway_dashboard_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Userid: 1000' \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/static/js/dashboard.js")"
-printf '%s' "${gateway_dashboard_js}" | grep -q '/app/baby-tracker/api/records/today'
-printf '%s' "${gateway_dashboard_js}" | grep -q '/app/baby-tracker/api/quick-record/'
+grep -q '/app/baby-tracker/api/records/today' <<< "${gateway_dashboard_js}"
+grep -q '/app/baby-tracker/api/quick-record/' <<< "${gateway_dashboard_js}"
 gateway_admin_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Userid: 1000' \
     -H 'X-Trim-Username: fnosadmin' \
@@ -343,7 +343,7 @@ gateway_spa_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/static/js/spa.js" )"
-printf '%s' "${gateway_spa_js}" | grep -q "'/app/baby-tracker/trends':"
+grep -q "'/app/baby-tracker/trends':" <<< "${gateway_spa_js}"
 log "Testing fnOS gateway logout and sign-in entry"
 gateway_logout_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
@@ -366,8 +366,8 @@ gateway_login_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/login")"
-printf '%s' "${gateway_login_page}" | grep -q 'doGatewayLogin'
-printf '%s' "${gateway_login_page}" | grep -q 'gateway-login-button'
+grep -q 'doGatewayLogin' <<< "${gateway_login_page}"
+grep -q 'gateway-login-button' <<< "${gateway_login_page}"
 gateway_relogin_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
     -X POST \
@@ -405,15 +405,15 @@ gateway_admin_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -H 'X-Trim-Username: fnosadmin' \
     -H 'X-Trim-Isadmin: true' \
     "http://localhost/app/baby-tracker/admin")"
-printf '%s' "${gateway_admin_page}" | grep -q 'data-change-admin-pw'
-printf '%s' "${gateway_admin_page}" | grep -q '管理配置'
-printf '%s' "${gateway_admin_page}" | grep -q 'id="admin-bind-address"'
-printf '%s' "${gateway_admin_page}" | grep -q 'id="admin-service-port"'
-printf '%s' "${gateway_admin_page}" | grep -q 'data-save-service-config'
-printf '%s' "${gateway_admin_page}" | grep -q 'data-toggle-service-config'
-printf '%s' "${gateway_admin_page}" | grep -q 'id="service-config-panel"'
-printf '%s' "${gateway_admin_page}" | grep -q 'id="service-config-status"'
-printf '%s' "${gateway_admin_page}" | grep -q 'service-config-warning'
+grep -q 'data-change-admin-pw' <<< "${gateway_admin_page}"
+grep -q '管理配置' <<< "${gateway_admin_page}"
+grep -q 'id="admin-bind-address"' <<< "${gateway_admin_page}"
+grep -q 'id="admin-service-port"' <<< "${gateway_admin_page}"
+grep -q 'data-save-service-config' <<< "${gateway_admin_page}"
+grep -q 'data-toggle-service-config' <<< "${gateway_admin_page}"
+grep -q 'id="service-config-panel"' <<< "${gateway_admin_page}"
+grep -q 'id="service-config-status"' <<< "${gateway_admin_page}"
+grep -q 'service-config-warning' <<< "${gateway_admin_page}"
 gateway_service_config="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
     -b "${SMOKE_COOKIE}" \
     -H 'X-Trim-Userid: 1000' \
