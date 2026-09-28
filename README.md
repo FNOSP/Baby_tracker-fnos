@@ -20,16 +20,43 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库。飞牛适配源码保存在 `sour
 - `baby-tracker.fpk.sha256`：SHA256 校验文件
 - `SOURCE_INFO.txt`：对应源码提交信息
 
-## 核心特性
+## 功能简介
 
-- 原生 fnOS 应用，不使用 Docker。
-- 支持 x86_64 和 arm64，自动使用对应架构的 Python 3.12 依赖。
+覆盖日常照护、成长趋势、疫苗规划和家庭自动化，数据全部保存在飞牛本地。
+
+| 功能 | 说明 |
+| --- | --- |
+| 总览 | 今日奶量目标、喂养次数、尿便次数、上次喂养和快捷记录。 |
+| 趋势 | 按日、月或时段查看体重、每日喂养量和目标达成趋势。 |
+| 成长 | 疫苗规划、健康随访、自定义日程、倒计时和接种进度。 |
+| 家庭共享 | 使用飞牛账号登录，多设备访问同一份本地数据。 |
+| Home Assistant | 提供传感器状态、操作按钮和独立 API Key 鉴权。 |
+
+<table>
+  <tr>
+    <td align="center" width="33%"><a href="docs/screenshots/dashboard.jpg"><img src="docs/screenshots/dashboard.jpg" width="100%" alt="总览"></a><br><sub>总览</sub></td>
+    <td align="center" width="33%"><a href="docs/screenshots/trends.jpg"><img src="docs/screenshots/trends.jpg" width="100%" alt="趋势"></a><br><sub>趋势</sub></td>
+    <td align="center" width="33%"><a href="docs/screenshots/growth.jpg"><img src="docs/screenshots/growth.jpg" width="100%" alt="成长"></a><br><sub>成长</sub></td>
+  </tr>
+</table>
+
+## 飞牛适配
+
+- 原生 fnOS 应用，不使用 Docker，支持 x86_64 和 arm64。
 - 接入飞牛统一网关、桌面入口和账号体系。
 - 首次登录强制设置管理密码，不预置默认管理员。
 - SQLite 数据保存在 `data-share`，升级或卸载不会误删数据。
 - Python 与前端依赖内置，不依赖公网 CDN。
-- 默认仅通过飞牛统一网关访问，可在“管理 > 管理配置”按需开放 TCP 监听。
-- 提供独立的 Home Assistant API Key 鉴权。
+- 默认仅通过飞牛统一网关访问，可按需开放 TCP 监听。
+
+## 配置指南
+
+| 配置项 | 操作 |
+| --- | --- |
+| 首次登录 | 从飞牛桌面打开应用，使用当前飞牛账号登录并设置管理密码。 |
+| 网络访问 | 默认只通过飞牛统一网关访问；在“管理 > 管理配置”同时填写监听地址和端口后，才开放 TCP 访问。 |
+| Home Assistant | 在“管理 > 管理配置”生成 API Key，再按页面生成的 YAML 配置服务地址。 |
+| 数据备份 | 数据默认位于 `baby-tracker/data`；建议导出 JSON，直接备份 SQLite 前先停止应用并一并复制 WAL 文件。 |
 
 ## 安装与使用
 
@@ -44,15 +71,7 @@ appcenter-cli install-fpk ./baby-tracker.fpk
 
 3. 从飞牛桌面打开应用，使用当前飞牛账号登录，并设置管理密码。
 
-应用默认只通过飞牛统一网关访问，不额外监听 TCP 端口。需要从局域网或公网直接访问时，在“管理 > 管理配置”同时填写监听地址和端口；使用 `0.0.0.0` 或公网地址前应确认防火墙和访问控制已配置。
-
-数据默认位于共享目录 `baby-tracker/data`，通常对应：
-
-```text
-/var/apps/baby-tracker/share/data
-```
-
-建议在应用管理页面导出 JSON 备份。直接备份 SQLite 前应先停止应用，并一并复制 `baby.db` 的 WAL 文件。
+数据目录通常对应 `/var/apps/baby-tracker/share/data`。
 
 ## 构建与发布
 
@@ -82,6 +101,7 @@ git push origin v1.6.7
 ## 目录
 
 ```text
+docs/        README 截图等文档资源
 source/      飞牛版源码
 packaging/   fnOS 应用包、Manifest、向导和运行资源
 scripts/     构建、代码适配和测试脚本
