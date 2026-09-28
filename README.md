@@ -6,8 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](#)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue?style=flat-square)](LICENSE)
 
-Baby Tracker 的独立飞牛 fnOS FPK 仓库。飞牛适配源码保存在 `source/`，构建、测试和发布均在本仓库完成，与 Docker 版完全独立，不包含 submodule，也不会在构建时拉取 Docker 仓库。
-
+Baby Tracker 的独立飞牛 fnOS FPK 仓库
 应用采用 Flask + Gunicorn 原生运行，支持 x86_64 与 arm64，接入飞牛统一网关和账号体系，数据保存在本地。
 
 ## 下载
