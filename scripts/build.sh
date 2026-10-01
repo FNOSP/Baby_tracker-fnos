@@ -173,6 +173,14 @@ validate_package() {
     grep -q 'data-toggle-service-config' "${SERVER_DIR}/templates/admin.html" || die "Admin listener toggle button is missing."
     grep -q 'id="service-config-panel"' "${SERVER_DIR}/templates/admin.html" || die "Collapsible service-config panel is missing."
     grep -q 'id="service-config-status"' "${SERVER_DIR}/templates/admin.html" || die "Service-config status summary is missing."
+    grep -q '<details class="admin-details">' "${SERVER_DIR}/templates/admin.html" || die "Native quick-record and Home Assistant collapsible cards are missing."
+    grep -q 'id="quick-buttons-panel"' "${SERVER_DIR}/templates/admin.html" || die "Quick-record collapsible panel is missing."
+    grep -q 'id="home-assistant-panel"' "${SERVER_DIR}/templates/admin.html" || die "Home Assistant collapsible panel is missing."
+    grep -q 'class="admin-details-header"' "${SERVER_DIR}/templates/admin.html" || die "Native collapsible summary is missing."
+    grep -Fq '.admin-details[open] .admin-details-icon' "${SERVER_DIR}/static/css/style.css" || die "Native collapsible expansion styling is missing."
+    if grep -q 'data-admin-collapse\|admin-collapse-panel\|toggleAdminCollapse' "${SERVER_DIR}/templates/admin.html" "${SERVER_DIR}/static/css/style.css" "${SERVER_DIR}/static/js/admin.js"; then
+        die "Legacy JavaScript-dependent admin collapse code is still packaged."
+    fi
     grep -q '.service-config-panel.is-open' "${SERVER_DIR}/static/css/style.css" || die "Service-config expansion animation is missing."
     grep -q '默认留空，仅通过飞牛统一网关访问' "${SERVER_DIR}/templates/admin.html" || die "Gateway-only listener guidance is missing."
     grep -q '目前仅通过飞牛统一网关访问，建议按需设置监听地址' "${SERVER_DIR}/templates/admin.html" || die "Gateway-only listener summary is missing."

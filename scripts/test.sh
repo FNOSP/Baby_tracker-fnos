@@ -112,6 +112,15 @@ grep -q 'type="button" class="quick-btn' "${PACK_SERVER_DIR}/static/js/dashboard
 grep -q 'window.scrollTo(0, scrollY)' "${PACK_SERVER_DIR}/static/js/dashboard.js"
 grep -q "menu.classList.add('is-open')" "${PACK_SERVER_DIR}/templates/base.html"
 grep -q '.service-config-panel.is-open' "${PACK_SERVER_DIR}/static/css/style.css"
+grep -q '<details class="admin-details">' "${PACK_SERVER_DIR}/templates/admin.html"
+grep -q 'id="quick-buttons-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
+grep -q 'id="home-assistant-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
+grep -q 'class="admin-details-header"' "${PACK_SERVER_DIR}/templates/admin.html"
+grep -Fq '.admin-details[open] .admin-details-icon' "${PACK_SERVER_DIR}/static/css/style.css"
+if grep -q 'data-admin-collapse\|admin-collapse-panel\|toggleAdminCollapse' "${PACK_SERVER_DIR}/templates/admin.html" "${PACK_SERVER_DIR}/static/css/style.css" "${PACK_SERVER_DIR}/static/js/admin.js"; then
+    log "Legacy JavaScript-dependent admin collapse code is still packaged"
+    exit 1
+fi
 
 test_python="${VENV_DIR}/bin/python"
 (
