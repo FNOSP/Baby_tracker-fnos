@@ -11,7 +11,7 @@ WHEELHOUSE_DIR="${ASSETS_DIR}/wheelhouse"
 TOOLS_DIR="${ROOT_DIR}/tools"
 DIST_DIR="${ROOT_DIR}/dist"
 FNPACK_VERSION="1.2.3"
-REPO_URL="https://github.com/XiGeMaX/Baby_tracker-fnos.git"
+REPO_URL="https://github.com/FNOSP/Baby_tracker-fnos.git"
 
 log() {
     printf '[build] %s\n' "$1"

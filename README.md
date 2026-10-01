@@ -1,6 +1,6 @@
 # Baby Tracker for fnOS
 
-[![Download Latest FPK](https://img.shields.io/badge/Download-Latest%20FPK-0ea5e9?style=for-the-badge&logo=github)](https://github.com/XiGeMaX/Baby_tracker-fnos/releases/latest)
+[![Download Latest FPK](https://img.shields.io/badge/Download-Latest%20FPK-0ea5e9?style=for-the-badge&logo=github)](https://github.com/FNOSP/Baby_tracker-fnos/releases/latest)
 [![fnOS](https://img.shields.io/badge/fnOS-native%20FPK-0f766e?style=flat-square)](#)
 [![Platform](https://img.shields.io/badge/platform-x86__64%20%7C%20arm64-334155?style=flat-square)](#)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](#)
@@ -11,7 +11,7 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库
 
 ## 下载
 
-[**下载最新 FPK**](https://github.com/XiGeMaX/Baby_tracker-fnos/releases/latest) · [查看全部 Releases](https://github.com/XiGeMaX/Baby_tracker-fnos/releases)
+[**下载最新 FPK**](https://github.com/FNOSP/Baby_tracker-fnos/releases/latest) · [查看全部 Releases](https://github.com/FNOSP/Baby_tracker-fnos/releases)
 
 每个 Release 包含：
 
@@ -61,7 +61,7 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库
 
 系统要求：fnOS `1.1.3100` 或更高版本。
 
-1. 从 [最新 Release](https://github.com/XiGeMaX/Baby_tracker-fnos/releases/latest) 下载 `baby-tracker.fpk`。
+1. 从 [最新 Release](https://github.com/FNOSP/Baby_tracker-fnos/releases/latest) 下载 `baby-tracker.fpk`。
 2. 在飞牛应用中心选择“手动安装”，或执行：
 
 ```bash
@@ -77,7 +77,7 @@ appcenter-cli install-fpk ./baby-tracker.fpk
 构建要求：`bash`、`git`、`curl`、`jq`、Python 3.12。
 
 ```bash
-git clone https://github.com/XiGeMaX/Baby_tracker-fnos.git
+git clone https://github.com/FNOSP/Baby_tracker-fnos.git
 cd Baby_tracker-fnos
 ./scripts/build.sh
 ```
