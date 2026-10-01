@@ -112,12 +112,6 @@ grep -q 'type="button" class="quick-btn' "${PACK_SERVER_DIR}/static/js/dashboard
 grep -q 'window.scrollTo(0, scrollY)' "${PACK_SERVER_DIR}/static/js/dashboard.js"
 grep -q "menu.classList.add('is-open')" "${PACK_SERVER_DIR}/templates/base.html"
 grep -q '.service-config-panel.is-open' "${PACK_SERVER_DIR}/static/css/style.css"
-grep -q 'data-admin-collapse="quick-buttons"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'id="quick-buttons-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'data-admin-collapse="home-assistant"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'id="home-assistant-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'toggleAdminCollapse' "${PACK_SERVER_DIR}/static/js/admin.js"
-grep -q '.admin-collapse-panel.is-open' "${PACK_SERVER_DIR}/static/css/style.css"
 
 test_python="${VENV_DIR}/bin/python"
 (

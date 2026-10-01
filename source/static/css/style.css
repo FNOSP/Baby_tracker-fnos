@@ -149,46 +149,6 @@ body { -webkit-font-smoothing: antialiased; }
 .card:hover { border-color: var(--c-border-hover); }
 
 /* ── Admin Service Configuration ─────────────────────── */
-.admin-collapse-header {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    text-align: left;
-}
-.admin-collapse-header:hover .admin-collapse-icon {
-    color: var(--c-accent);
-}
-.admin-collapse-panel {
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-6px);
-    transition:
-        grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.2s ease,
-        transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-        visibility 0s linear 0.3s;
-}
-.admin-collapse-panel.is-open {
-    grid-template-rows: 1fr;
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-    transition-delay: 0s;
-}
-.admin-collapse-panel-inner {
-    min-height: 0;
-    overflow: hidden;
-}
-.admin-collapse-icon {
-    transition: transform 0.25s ease, color 0.2s ease;
-}
-[data-admin-collapse][aria-expanded="true"] .admin-collapse-icon {
-    transform: rotate(180deg);
-}
 .service-config-panel {
     display: grid;
     grid-template-rows: 0fr;

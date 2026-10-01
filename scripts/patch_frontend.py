@@ -135,95 +135,6 @@ NEW_ADMIN_HEADER_BLOCK = """    <div class="flex items-center justify-between">
 """
 
 
-OLD_QUICK_BUTTONS_BLOCK = """    <!-- 快速记录按钮配置 -->
-    <div class="card space-y-4">
-        <div class="flex items-center justify-between mb-1">
-            <div class="flex items-center gap-2">
-                <i data-lucide="zap" class="w-4 h-4 text-accent"></i>
-                <h2 class="text-sm font-medium text-text-secondary">快速记录按钮</h2>
-            </div>
-            <button class="btn-primary text-xs px-3 py-1.5" onclick="showAddButtonModal()">添加按钮</button>
-        </div>
-        <div id="buttons-list" class="space-y-2">
-            <p class="text-text-muted text-sm text-center py-4">加载中...</p>
-        </div>
-    </div>
-"""
-
-NEW_QUICK_BUTTONS_BLOCK = """    <!-- 快速记录按钮配置 -->
-    <div class="card">
-        <button type="button" class="admin-collapse-header" data-admin-collapse="quick-buttons" aria-expanded="false" aria-controls="quick-buttons-panel">
-            <span class="flex items-center gap-2 min-w-0">
-                <i data-lucide="zap" class="w-4 h-4 text-accent flex-shrink-0"></i>
-                <span class="min-w-0">
-                    <span class="block text-sm font-medium text-text-secondary">快速记录按钮</span>
-                    <span class="block text-[10px] text-text-muted mt-0.5">配置首页可使用的快捷记录项</span>
-                </span>
-            </span>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-text-muted flex-shrink-0 admin-collapse-icon"></i>
-        </button>
-        <div id="quick-buttons-panel" class="admin-collapse-panel" aria-hidden="true">
-            <div class="admin-collapse-panel-inner">
-                <div class="space-y-3 pt-4">
-                    <div class="flex justify-end">
-                        <button class="btn-primary text-xs px-3 py-1.5" onclick="showAddButtonModal()">添加按钮</button>
-                    </div>
-                    <div id="buttons-list" class="space-y-2">
-                        <p class="text-text-muted text-sm text-center py-4">加载中...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-"""
-
-OLD_HA_INTEGRATION_OPEN_BLOCK = """    <!-- HA 接口配置向导 -->
-    <div class="card space-y-4">
-        <div class="flex items-center gap-2 mb-1">
-            <i data-lucide="home" class="w-4 h-4 text-accent"></i>
-            <h2 class="text-sm font-medium text-text-secondary">Home Assistant 集成</h2>
-        </div>
-
-        <!-- 步骤1: 生成密钥 -->
-"""
-
-NEW_HA_INTEGRATION_OPEN_BLOCK = """    <!-- HA 接口配置向导 -->
-    <div class="card">
-        <button type="button" class="admin-collapse-header" data-admin-collapse="home-assistant" aria-expanded="false" aria-controls="home-assistant-panel">
-            <span class="flex items-center gap-2 min-w-0">
-                <i data-lucide="home" class="w-4 h-4 text-accent flex-shrink-0"></i>
-                <span class="min-w-0">
-                    <span class="block text-sm font-medium text-text-secondary">Home Assistant 集成</span>
-                    <span class="block text-[10px] text-text-muted mt-0.5">配置 API 密钥、服务地址、实体与 YAML</span>
-                </span>
-            </span>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-text-muted flex-shrink-0 admin-collapse-icon"></i>
-        </button>
-        <div id="home-assistant-panel" class="admin-collapse-panel" aria-hidden="true">
-            <div class="admin-collapse-panel-inner">
-                <div class="space-y-4 pt-4">
-
-        <!-- 步骤1: 生成密钥 -->
-"""
-
-OLD_HA_INTEGRATION_CLOSE_BLOCK = """        </div>
-    </div>
-</div>
-
-<!-- 添加/编辑按钮弹窗 -->
-"""
-
-NEW_HA_INTEGRATION_CLOSE_BLOCK = """        </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 添加/编辑按钮弹窗 -->
-"""
-
-
 OLD_LOGIN_BUTTON_BLOCK = """        <div id="login-error" class="text-red-400 text-xs hidden"></div>
         <button class="btn-primary w-full py-3 text-base" onclick="doLogin()">登录</button>
     </div>
@@ -303,8 +214,6 @@ NEW_ADMIN_EVENTS_BLOCK = """        document.addEventListener('click', e => {
             if (saveServiceBtn) saveServiceConfig();
             const serviceToggleBtn = e.target.closest('[data-toggle-service-config]');
             if (serviceToggleBtn) toggleServiceConfig();
-            const collapseBtn = e.target.closest('[data-admin-collapse]');
-            if (collapseBtn) toggleAdminCollapse(collapseBtn);
             const ownerPwBtn = e.target.closest('[data-change-admin-pw]');
             if (ownerPwBtn) showResetPasswordModal(parseInt(ownerPwBtn.dataset.adminId), ownerPwBtn.dataset.adminName);
             const renameBtn = e.target.closest('[data-rename-user]');
@@ -406,17 +315,6 @@ function toggleServiceConfig(forceOpen) {
     const trigger = document.querySelector('[data-toggle-service-config]');
     if (!panel || !trigger) return;
     const open = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('is-open');
-    panel.classList.toggle('is-open', open);
-    panel.setAttribute('aria-hidden', String(!open));
-    trigger.setAttribute('aria-expanded', String(open));
-    if ('inert' in panel) panel.inert = !open;
-}
-
-function toggleAdminCollapse(trigger) {
-    const panelId = trigger?.dataset?.adminCollapse;
-    const panel = panelId ? document.getElementById(panelId) : null;
-    if (!panel) return;
-    const open = !panel.classList.contains('is-open');
     panel.classList.toggle('is-open', open);
     panel.setAttribute('aria-hidden', String(!open));
     trigger.setAttribute('aria-expanded', String(open));
@@ -543,24 +441,6 @@ def patch_frontend(server_dir: Path) -> int:
             OLD_ADMIN_HEADER_BLOCK,
             NEW_ADMIN_HEADER_BLOCK,
             "admin password card",
-        ),
-        (
-            server_dir / "templates" / "admin.html",
-            OLD_QUICK_BUTTONS_BLOCK,
-            NEW_QUICK_BUTTONS_BLOCK,
-            "quick-record collapsible card",
-        ),
-        (
-            server_dir / "templates" / "admin.html",
-            OLD_HA_INTEGRATION_OPEN_BLOCK,
-            NEW_HA_INTEGRATION_OPEN_BLOCK,
-            "Home Assistant collapsible card opening",
-        ),
-        (
-            server_dir / "templates" / "admin.html",
-            OLD_HA_INTEGRATION_CLOSE_BLOCK,
-            NEW_HA_INTEGRATION_CLOSE_BLOCK,
-            "Home Assistant collapsible card closing",
         ),
         (
             server_dir / "static" / "js" / "admin.js",

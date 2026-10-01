@@ -91,8 +91,8 @@ FPK_OFFLINE_WHEELS=1 ./scripts/build.sh
 推送 `v*` 标签后，[release.yml](.github/workflows/release.yml) 会自动构建、测试并发布 FPK：
 
 ```bash
-git tag v1.6.8
-git push origin v1.6.8
+git tag v1.6.7
+git push origin v1.6.7
 ```
 
 标签版本必须与 `packaging/baby-tracker/manifest` 中的 `version` 一致。
