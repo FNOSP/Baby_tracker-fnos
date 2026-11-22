@@ -5,4 +5,5 @@ Before any Go coding, review, debugging, troubleshooting, or setup task, load th
 ## Release metadata
 
 - Keep the manifest `desc` field at the approved content from commit `77411b8`. Do not add feature announcements, implementation details, compatibility notes, or version-specific changes there.
-- Record every user-visible change in `CHANGELOG.md` under the matching version, then mirror a concise summary in the manifest `changelog` field.
+- Record only software functionality, behavior, and interface changes in `CHANGELOG.md`. Exclude documentation, build and release workflow, packaging metadata, version-only, and repository maintenance changes unless they directly change user-facing software behavior.
+- Mirror the same software-only scope in the manifest `changelog` field.

@@ -40,7 +40,7 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库
   </tr>
 </table>
 
-近期用户可见更新见 [CHANGELOG.md](CHANGELOG.md)。应用中心介绍保持稳定，功能与兼容性变化统一记录在 Changelog。
+近期软件功能与界面更新见 [CHANGELOG.md](CHANGELOG.md)。应用中心介绍保持稳定，构建与发布流程不写入 Changelog。
 
 ## 飞牛适配
 
