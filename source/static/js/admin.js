@@ -34,15 +34,38 @@ const SUB_TYPES = {
 let _adminEventsInit = false;
 
 function initAdmin() {
-    Promise.all([loadBaby(), loadSettings(), loadStats(), loadUsers(), loadButtons(), loadLogs(), loadHaApiKey()]);
+    Promise.all([
+        loadBaby(),
+        loadSettings(),
+        loadStats(),
+        loadUsers(),
+        loadButtons(),
+        loadLogs(),
+        loadHaApiKey(),
+        loadServiceConfig(),
+        loadMcpApiKey(),
+    ]);
     updateSubTypes();
     if (!_adminEventsInit) {
         _adminEventsInit = true;
         document.addEventListener('click', e => {
             const resetBtn = e.target.closest('[data-reset-pw]');
             if (resetBtn) showResetPasswordModal(parseInt(resetBtn.dataset.resetPw), resetBtn.dataset.resetName);
+            const saveServiceBtn = e.target.closest('[data-save-service-config]');
+            if (saveServiceBtn) saveServiceConfig();
+            const toggleMcpBtn = e.target.closest('[data-toggle-mcp]');
+            if (toggleMcpBtn) toggleMcpService();
+            const copyMcpKeyBtn = e.target.closest('[data-copy-mcp-key]');
+            if (copyMcpKeyBtn) copyMcpApiKey();
+            const generateMcpKeyBtn = e.target.closest('[data-generate-mcp-key]');
+            if (generateMcpKeyBtn) generateMcpApiKey();
+            const ownerPwBtn = e.target.closest('[data-change-admin-pw]');
+            if (ownerPwBtn) showResetPasswordModal(parseInt(ownerPwBtn.dataset.adminId), ownerPwBtn.dataset.adminName);
             const renameBtn = e.target.closest('[data-rename-user]');
             if (renameBtn) showRenameUserModal(parseInt(renameBtn.dataset.renameUser), renameBtn.dataset.renameName);
+        });
+        document.addEventListener('input', e => {
+            if (e.target.closest('#admin-bind-address')) updateServiceRiskWarning();
         });
     }
 }
@@ -95,9 +118,9 @@ function renderUsers(users) {
         } else if (u.status === 'rejected') {
             actions = `<button class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors" onclick="approveUser(${u.id})">重新批准</button>`;
         }
-        actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-amber-400 hover:border-amber-500/30 transition-colors" data-reset-pw="${u.id}" data-reset-name="${esc(u.nickname || u.username)}">改密</button>`;
-        actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-blue-400 hover:border-blue-500/30 transition-colors" data-rename-user="${u.id}" data-rename-name="${esc(u.username)}">改名</button>`;
         if (u.role !== 'admin') {
+            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-amber-400 hover:border-amber-500/30 transition-colors" data-reset-pw="${u.id}" data-reset-name="${esc(u.nickname || u.username)}">改密</button>`;
+            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-blue-400 hover:border-blue-500/30 transition-colors" data-rename-user="${u.id}" data-rename-name="${esc(u.username)}">改名</button>`;
             actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-red-400 hover:border-red-500/30 transition-colors" onclick="deleteUser(${u.id})">删除</button>`;
         }
 
@@ -543,12 +566,12 @@ function renderLogs(logs) {
 }
 
 function exportCSV() {
-    window.location.href = '/api/export/csv';
+    window.location.href = appUrl('/api/export/csv');
 }
 
 // ── Backup & Restore ─────────────────────────────────────
 function backupExport() {
-    window.location.href = '/api/backup/export';
+    window.location.href = appUrl('/api/backup/export');
 }
 
 function showRestoreModal() {
@@ -577,7 +600,7 @@ async function backupRestore() {
     formData.append('file', fileInput.files[0]);
 
     try {
-        const res = await fetch('/api/backup/restore', {
+        const res = await fetch(appUrl('/api/backup/restore'), {
             method: 'POST',
             body: formData,
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
@@ -625,8 +648,9 @@ function showResetPasswordModal(userId, userName) {
     }
     modal.innerHTML = `
     <div class="bg-surface border border-border rounded-xl p-6 w-80 max-w-[90vw]">
-        <h3 class="text-sm font-medium text-text-secondary mb-3">重置密码 - ${esc(userName)}</h3>
-        <input type="password" id="reset-pw-input" class="input-field font-mono" placeholder="输入新密码（至少6位）" autocomplete="new-password">
+        <h3 class="text-sm font-medium text-text-secondary mb-3">修改管理密码 - ${esc(userName)}</h3>
+        <input type="password" id="reset-pw-input" class="input-field font-mono" placeholder="输入新密码（8-128位）" autocomplete="new-password">
+        <input type="password" id="reset-pw-confirm" class="input-field font-mono mt-2" placeholder="再次输入新密码" autocomplete="new-password">
         <div class="flex gap-2 mt-4">
             <button class="btn-secondary flex-1 text-sm" onclick="closeResetPasswordModal()">取消</button>
             <button class="btn-primary flex-1 text-sm" onclick="resetPassword()">确认</button>
@@ -649,8 +673,13 @@ function closeResetPasswordModal() {
 
 async function resetPassword() {
     const pw = document.getElementById('reset-pw-input').value;
-    if (pw.length < 6) {
-        showToast('密码至少6个字符');
+    const confirmation = document.getElementById('reset-pw-confirm').value;
+    if (pw.length < 8 || pw.length > 128) {
+        showToast('密码长度应为 8-128 位');
+        return;
+    }
+    if (pw !== confirmation) {
+        showToast('两次输入的密码不一致');
         return;
     }
     try {
@@ -768,7 +797,229 @@ function haToggleAllButtons() {
     checks.forEach(c => { c.checked = !allChecked; });
 }
 
+function isPublicIPv4(value) {
+    const octets = String(value || '').split('.').map(Number);
+    if (octets.length !== 4 || octets.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    if (octets[0] === 0 || octets[0] === 10 || octets[0] === 127) return false;
+    if (octets[0] === 169 && octets[1] === 254) return false;
+    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return false;
+    if (octets[0] === 192 && octets[1] === 168) return false;
+    if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return false;
+    return true;
+}
+
+function serviceRiskWarning(bindAddress) {
+    if (bindAddress === '0.0.0.0') return '监听所有网卡可能扩大访问范围，请确认防火墙和端口映射安全。';
+    if (isPublicIPv4(bindAddress)) return '该地址可能允许公网直接访问，请确认防火墙和访问控制安全。';
+    return '';
+}
+
+function updateServiceRiskWarning() {
+    const warning = document.getElementById('service-config-warning');
+    if (!warning) return '';
+    const bindAddress = document.getElementById('admin-bind-address')?.value?.trim() || '';
+    const message = serviceRiskWarning(bindAddress);
+    warning.textContent = message;
+    warning.classList.toggle('hidden', !message);
+    return message;
+}
+
+function updateServiceConfigStatus(config) {
+    const status = document.getElementById('service-config-status');
+    if (!status) return;
+    const bindAddress = String(config?.bind_address || '').trim();
+    const port = String(config?.port || '').trim();
+    status.textContent = bindAddress && port
+        ? `已开启 ${bindAddress}:${port}`
+        : '目前仅通过飞牛统一网关访问，建议按需设置监听地址';
+    updateMcpServiceStatus(config);
+}
+
+function mcpEndpointFor(bindAddress, port) {
+    const address = String(bindAddress || '').trim();
+    const portValue = String(port || '').trim();
+    if (!address || !portValue) return '';
+    let host = address;
+    if (host === '0.0.0.0') {
+        host = location.hostname && location.hostname !== '0.0.0.0'
+            ? location.hostname
+            : '127.0.0.1';
+    }
+    return `http://${host}:${portValue}/mcp`;
+}
+
+function updateMcpServiceStatus(config) {
+    const bindAddress = String(config?.bind_address || '').trim();
+    const port = String(config?.port || '').trim();
+    const enabled = config?.mcp_enabled ?? config?.enabled ?? false;
+    const listenerAvailable = config?.mcp_listener_available
+        ?? config?.listener_available
+        ?? Boolean(bindAddress && port);
+    const available = config?.mcp_available ?? config?.available ?? (enabled && listenerAvailable);
+    const state = document.getElementById('mcp-service-state');
+    const status = document.getElementById('mcp-service-status');
+    const endpoint = document.getElementById('mcp-endpoint');
+    const toggle = document.getElementById('mcp-service-toggle');
+
+    if (state) {
+        state.textContent = available ? '已启用' : enabled ? '等待监听' : '未启用';
+        state.classList.toggle('is-enabled', available);
+        state.classList.toggle('is-pending', enabled && !listenerAvailable);
+        state.classList.toggle('is-disabled', !enabled);
+        state.dataset.state = available ? 'enabled' : enabled ? 'pending' : 'disabled';
+    }
+    if (status) {
+        status.textContent = available
+            ? '仅直连额外监听端口可用，统一网关不提供 MCP'
+            : enabled
+                ? 'MCP 已打开，请先配置有效的监听地址和端口'
+                : '默认关闭，打开后展开连接配置';
+    }
+    if (endpoint) {
+        endpoint.value = available ? mcpEndpointFor(bindAddress, port) : '';
+        endpoint.placeholder = !enabled
+            ? '打开 MCP 后生成'
+            : listenerAvailable
+                ? '正在生成端点'
+                : '配置监听地址和端口后生成';
+    }
+    if (toggle) {
+        toggle.setAttribute('aria-checked', String(enabled));
+        toggle.setAttribute('aria-label', enabled ? '关闭 MCP 服务' : '启用 MCP 服务');
+        toggle.title = enabled ? '关闭 MCP 服务' : '启用 MCP 服务';
+        toggle.dataset.ready = 'true';
+        toggle.disabled = toggle.dataset.busy === 'true';
+    }
+    setMcpSettingsExpanded(enabled);
+}
+
+function setMcpSettingsExpanded(expanded) {
+    const details = document.getElementById('mcp-settings-details');
+    if (!details) return;
+    details.classList.toggle('is-open', expanded);
+    details.setAttribute('aria-hidden', String(!expanded));
+    details.inert = !expanded;
+}
+
+function setMcpSwitchBusy(busy) {
+    const toggle = document.getElementById('mcp-service-toggle');
+    if (!toggle) return;
+    toggle.dataset.busy = String(busy);
+    toggle.setAttribute('aria-busy', String(busy));
+    toggle.disabled = busy || toggle.dataset.ready !== 'true';
+}
+
+async function toggleMcpService() {
+    const toggle = document.getElementById('mcp-service-toggle');
+    if (!toggle || toggle.dataset.ready !== 'true' || toggle.dataset.busy === 'true') return;
+    const enabled = toggle.getAttribute('aria-checked') !== 'true';
+    setMcpSwitchBusy(true);
+    try {
+        const result = await api('/api/mcp/config', {
+            method: 'PUT',
+            body: JSON.stringify({ enabled }),
+        });
+        updateMcpServiceStatus({
+            bind_address: result.bind_address,
+            port: result.port,
+            mcp_enabled: result.enabled,
+            mcp_listener_available: result.listener_available,
+            mcp_available: result.available,
+        });
+        showToast(result.message || (enabled ? 'MCP 服务已开启' : 'MCP 服务已关闭'));
+    } catch (e) {
+        showToast(e.message);
+    } finally {
+        setMcpSwitchBusy(false);
+    }
+}
+
+async function loadServiceConfig() {
+    try {
+        const config = await api('/api/admin/service-config');
+        const bindInput = document.getElementById('admin-bind-address');
+        const portInput = document.getElementById('admin-service-port');
+        if (bindInput) bindInput.value = config.bind_address || '';
+        if (portInput) portInput.value = config.port || '';
+        updateServiceConfigStatus(config);
+        updateServiceRiskWarning();
+        if (config.bind_address && config.port) syncHaServiceAddress(config);
+    } catch (e) {
+        console.warn('加载监听配置失败', e);
+    }
+}
+
+function syncHaServiceAddress(config) {
+    const host = String(config?.bind_address || '').trim();
+    const port = String(config?.port || '').trim();
+    const hostInput = document.getElementById('ha-host');
+    const portInput = document.getElementById('ha-port');
+    if (hostInput && host) hostInput.value = host;
+    if (portInput && port) portInput.value = port;
+}
+
+async function saveServiceConfig() {
+    const bindInput = document.getElementById('admin-bind-address');
+    const portInput = document.getElementById('admin-service-port');
+    const bindAddress = bindInput?.value?.trim() || '';
+    const port = portInput?.value?.trim() || '';
+    const portNumber = Number(port);
+    if ((bindAddress && !port) || (!bindAddress && port)) {
+        showToast('监听地址和端口需同时填写，留空则关闭监听');
+        return;
+    }
+    if (bindAddress && (!port || !Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535)) {
+        showToast('监听端口范围应为 1024-65535');
+        return;
+    }
+    const riskWarning = serviceRiskWarning(bindAddress);
+    const restartHint = bindAddress
+        ? '保存后应用会自动重启，统一网关和监听端口会短暂中断。'
+        : '关闭后应用会自动重启，仅保留飞牛统一网关访问。';
+    const confirmMessage = riskWarning ? `${riskWarning}
+
+${restartHint}` : restartHint;
+    if (!await showConfirm(confirmMessage, { confirmText: bindAddress ? '保存并重启' : '关闭并重启' })) return;
+
+    const button = document.querySelector('[data-save-service-config]');
+    if (button) {
+        button.disabled = true;
+        button.classList.add('opacity-60', 'cursor-not-allowed');
+    }
+    try {
+        const result = await api('/api/admin/service-config', {
+            method: 'PUT',
+            body: JSON.stringify({ bind_address: bindAddress, port }),
+        });
+        const applied = {
+            bind_address: result.bind_address ?? bindAddress,
+            port: result.port != null ? String(result.port) : port,
+            mcp_enabled: result.mcp_enabled,
+            mcp_listener_available: result.mcp_listener_available,
+            mcp_available: result.mcp_available,
+        };
+        if (bindInput) bindInput.value = applied.bind_address;
+        if (portInput) portInput.value = applied.port;
+        updateServiceConfigStatus(applied);
+        updateServiceRiskWarning();
+        if (applied.bind_address && applied.port) syncHaServiceAddress(applied);
+        const yamlOutput = document.getElementById('ha-yaml-output');
+        if (applied.bind_address && yamlOutput && !yamlOutput.textContent.includes('点击上方按钮生成配置')) {
+            generateHaYaml();
+        }
+        showToast(result.message || '监听配置已保存');
+    } catch (e) {
+        showToast(e.message);
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+    }
+}
+
 async function generateHaApiKey() {
+
     if (!await showConfirm('生成新的 API 密钥？旧密钥将立即失效。', { confirmText: '生成' })) return;
     try {
         const data = await api('/api/ha/api-key', { method: 'POST' });
@@ -787,6 +1038,37 @@ function copyHaApiKey() {
         return;
     }
     _copyText(el.value, '密钥已复制');
+}
+
+async function loadMcpApiKey() {
+    try {
+        const data = await api('/api/mcp/api-key');
+        const el = document.getElementById('mcp-api-key');
+        if (el) el.value = data.api_key || '';
+    } catch (e) {
+        console.warn('加载 MCP API 密钥失败', e);
+    }
+}
+
+async function generateMcpApiKey() {
+    if (!await showConfirm('生成新的 MCP API 密钥？旧密钥将立即失效。', { confirmText: '生成' })) return;
+    try {
+        const data = await api('/api/mcp/api-key', { method: 'POST' });
+        const el = document.getElementById('mcp-api-key');
+        if (el) el.value = data.api_key || '';
+        showToast('MCP API 密钥已生成');
+    } catch (e) {
+        showToast(e.message);
+    }
+}
+
+function copyMcpApiKey() {
+    const el = document.getElementById('mcp-api-key');
+    if (!el || !el.value) {
+        showToast('请先生成 MCP API 密钥');
+        return;
+    }
+    _copyText(el.value, 'MCP API 密钥已复制');
 }
 
 function generateHaYaml() {
@@ -818,7 +1100,7 @@ function generateHaYaml() {
         const sensorConfigs = {
             'status': {
                 name: '宝宝今日奶量',
-                resource: '/api/ha/status',
+                resource: 'api/ha/status',
                 value_template: '{{ value_json.state }}',
                 unit: 'ml',
                 attributes_path: '$.attributes',
@@ -826,7 +1108,7 @@ function generateHaYaml() {
             },
             'feed-today': {
                 name: '宝宝今日喂养',
-                resource: '/api/ha/feed-today',
+                resource: 'api/ha/feed-today',
                 value_template: '{{ value_json.state }}',
                 unit: '',
                 attributes_path: '$.attributes',
@@ -834,7 +1116,7 @@ function generateHaYaml() {
             },
             'last-feed': {
                 name: '宝宝上次喂养',
-                resource: '/api/ha/last-feed',
+                resource: 'api/ha/last-feed',
                 value_template: '{{ value_json.state }}',
                 unit: '',
                 attributes_path: '$.attributes',
@@ -842,7 +1124,7 @@ function generateHaYaml() {
             },
             'excrete-today': {
                 name: '宝宝今日排泄',
-                resource: '/api/ha/excrete-today',
+                resource: 'api/ha/excrete-today',
                 value_template: '{{ value_json.state }}',
                 unit: '',
                 attributes_path: '$.attributes',
@@ -855,7 +1137,7 @@ function generateHaYaml() {
             if (!cfg) return;
             lines.push(`  - platform: rest`);
             lines.push(`    name: "${cfg.name}"`);
-            lines.push(`    resource: "${base}${cfg.resource}"`);
+            lines.push(`    resource: "${base}/${cfg.resource}"`);
             lines.push(`    value_template: "${cfg.value_template}"`);
             if (cfg.unit) lines.push(`    unit_of_measurement: "${cfg.unit}"`);
             if (cfg.attrs.length > 0) {
@@ -863,6 +1145,8 @@ function generateHaYaml() {
                 lines.push(`    json_attributes:`);
                 cfg.attrs.forEach(a => lines.push(`      - ${a}`));
             }
+            lines.push(`    headers:`);
+            lines.push(`      Authorization: "Bearer ${apiKey}"`);
             lines.push(`    scan_interval: 300`);
             lines.push('');
         });

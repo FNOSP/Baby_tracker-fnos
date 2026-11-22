@@ -4,141 +4,155 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="${ROOT_DIR}/source"
-PACK_SERVER_DIR="${ROOT_DIR}/packaging/baby-tracker/app/server"
+PACK_DIR="${ROOT_DIR}/packaging/baby-tracker"
 BUILD_DIR="${ROOT_DIR}/.build"
-VENV_DIR="${BUILD_DIR}/test-venv"
-SMOKE_DATA_DIR="${BUILD_DIR}/smoke-data"
-SMOKE_LOG="${BUILD_DIR}/smoke.log"
-SMOKE_SOCKET="${BUILD_DIR}/smoke-app.sock"
-SMOKE_COOKIE="${BUILD_DIR}/smoke.cookies"
-SMOKE_PORT="18964"
-SMOKE_ADMIN_USER="fnosadmin"
-SMOKE_ADMIN_PASSWORD="InitialAdmin123!"
-SMOKE_CHANGED_ADMIN_PASSWORD="ChangedAdmin456!"
-SMOKE_ETC_DIR="${BUILD_DIR}/smoke-etc"
-TEST_SERVICE_LAUNCHER="${ROOT_DIR}/scripts/test-service-launcher.py"
-DATA_MAP_DIR="${BUILD_DIR}/fresh-data-map"
+TEST_BINARY="${BUILD_DIR}/baby-tracker-test"
+SMOKE_DIR="${BUILD_DIR}/go-smoke"
+SMOKE_DATA_DIR="${SMOKE_DIR}/share/baby-tracker/data"
+SMOKE_SOCKET="${SMOKE_DIR}/app/app.sock"
+SMOKE_COOKIE="${SMOKE_DIR}/cookies.txt"
+SMOKE_LOG="${SMOKE_DIR}/var/app.log"
+SMOKE_PORT="${SMOKE_PORT:-18964}"
+SERVER_PID=""
 
 log() {
     printf '[test] %s\n' "$1"
 }
 
+cleanup() {
+    if [ -n "${SERVER_PID}" ] && kill -0 "${SERVER_PID}" 2>/dev/null; then
+        kill "${SERVER_PID}" 2>/dev/null || true
+        wait "${SERVER_PID}" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+command -v go >/dev/null 2>&1 || {
+    printf '[test] ERROR: Go is required.\n' >&2
+    exit 1
+}
+command -v curl >/dev/null 2>&1 || {
+    printf '[test] ERROR: curl is required.\n' >&2
+    exit 1
+}
+command -v jq >/dev/null 2>&1 || {
+    printf '[test] ERROR: jq is required.\n' >&2
+    exit 1
+}
+
 mkdir -p "${BUILD_DIR}"
-if [ ! -x "${VENV_DIR}/bin/python" ]; then
-    log "Creating test virtual environment"
-    python3 -m venv "${VENV_DIR}"
+
+log "Checking Go formatting"
+unformatted="$(gofmt -l "${ROOT_DIR}/cmd" "${ROOT_DIR}/internal")"
+if [ -n "${unformatted}" ]; then
+    printf '%s\n' "${unformatted}" >&2
+    exit 1
 fi
-"${VENV_DIR}/bin/python" -m pip install --disable-pip-version-check -r "${SOURCE_DIR}/requirements.txt"
 
-log "Validating fpk launcher icons"
-"${VENV_DIR}/bin/python" - <<'PY'
-from pathlib import Path
-from PIL import Image
-
-path = Path('packaging/build-assets/icons/icon_64.png')
-image = Image.open(path).convert('RGBA')
-bbox = image.getbbox()
-if image.size != (64, 64) or bbox is None or bbox[2] - bbox[0] < 60 or bbox[3] - bbox[1] < 60:
-    raise SystemExit(f'invalid 64px icon: size={image.size}, bbox={bbox}')
-if image.getpixel((32, 2))[3] == 0 or image.getpixel((2, 32))[3] == 0:
-    raise SystemExit('64px icon appears cropped')
-
-for size in (180, 192, 512):
-    path = Path(f'source/static/icons/icon-{size}.png')
-    image = Image.open(path).convert('RGBA')
-    bbox = image.getbbox()
-    if image.size != (size, size) or bbox is None:
-        raise SystemExit(f'invalid PWA icon: path={path}, size={image.size}, bbox={bbox}')
-    if image.getpixel((size // 2, size // 2))[3] == 0:
-        raise SystemExit(f'PWA icon has a transparent center: {path}')
-    if image.getpixel((0, 0))[3] != 255 or image.getpixel((size - 1, size - 1))[3] != 255:
-        raise SystemExit(f'PWA icon has transparent corners and may render with a black ring: {path}')
-PY
-
-log "Running fnOS source unit tests"
-(cd "${SOURCE_DIR}" && "${VENV_DIR}/bin/python" -m unittest -v)
-
-log "Validating fresh data-share mapping"
-rm -rf "${DATA_MAP_DIR}"
-mkdir -p "${DATA_MAP_DIR}/share/baby-tracker/data" "${DATA_MAP_DIR}/pkgvar/data"
+log "Running go vet and Go tests"
 (
-    export TRIM_APPDEST="${DATA_MAP_DIR}/app"
-    export TRIM_PKGVAR="${DATA_MAP_DIR}/pkgvar"
-    export TRIM_PKGETC="${DATA_MAP_DIR}/etc"
-    export TRIM_PKGTMP="${DATA_MAP_DIR}/tmp"
-    export TRIM_DATA_SHARE_PATHS="${DATA_MAP_DIR}/share/baby-tracker/data"
-    source "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-    map_data_dir
+    cd "${ROOT_DIR}"
+    go vet ./...
+    go test ./...
 )
-[ -L "${DATA_MAP_DIR}/pkgvar/data" ]
-[ "$(readlink "${DATA_MAP_DIR}/pkgvar/data")" = "${DATA_MAP_DIR}/share/baby-tracker/data" ]
-[ ! -e "${DATA_MAP_DIR}/pkgvar/data.pre-data-share" ]
 
-if [ ! -s "${PACK_SERVER_DIR}/wsgi.py" ]; then
-    log "Packaged payload is not built yet; skipping Gunicorn smoke test"
-    exit 0
+log "Checking JavaScript syntax"
+if command -v node >/dev/null 2>&1; then
+    node --check "${SOURCE_DIR}/static/js/app.js"
+    node --check "${SOURCE_DIR}/static/js/admin.js"
+    node --check "${SOURCE_DIR}/static/js/motion.js"
+    node --check "${SOURCE_DIR}/static/js/spa.js"
+    node --check "${SOURCE_DIR}/static/sw.js"
+    node - "${SOURCE_DIR}/static/js/app.js" <<'JS'
+const assert = require('assert');
+const fs = require('fs');
+global.document = { documentElement: { dataset: { appBase: '/app/baby-tracker' } } };
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+assert.equal(appUrl('/api/export/csv'), '/app/baby-tracker/api/export/csv');
+assert.equal(appUrl('/app/baby-tracker/trends'), '/app/baby-tracker/trends');
+assert.equal(appUrl('https://example.com/test'), 'https://example.com/test');
+JS
 fi
 
-log "Validating optional TCP listener configuration"
-[ ! -e "${ROOT_DIR}/packaging/baby-tracker/wizard/install" ]
-grep -q 'gunicorn_args=(--bind "unix:${GATEWAY_SOCKET}")' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-grep -q 'gunicorn_args+=(--bind "${bind_address}:${service_port}")' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-grep -q 'validate_service_values' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-if grep -q 'LanAccessMiddleware' "${PACK_SERVER_DIR}/wsgi.py"; then
-    log "The packaged WSGI app still contains the obsolete CIDR allowlist middleware"
-    exit 1
-fi
-if grep -q 'LEGACY_LAN_CIDRS_FILE\|select_bind_address\|migrate_data_dir\|pre-data-share' "${ROOT_DIR}/packaging/baby-tracker/cmd/main"; then
-    log "Legacy install/upgrade compatibility logic remains in the launcher"
-    exit 1
-fi
-grep -q "app.run(host='127.0.0.1', port=5000, debug=True)" "${PACK_SERVER_DIR}/app.py"
-if grep -q "host='0.0.0.0'" "${PACK_SERVER_DIR}/app.py"; then
-    log "The development server fallback is not loopback-only"
-    exit 1
-fi
-grep -q 'clearTimeout(toastHideTimer)' "${PACK_SERVER_DIR}/static/js/app.js"
-grep -q 'void toast.offsetWidth' "${PACK_SERVER_DIR}/static/js/app.js"
-grep -q 'requestAnimationFrame' "${PACK_SERVER_DIR}/static/js/app.js"
-grep -q 'visibility: hidden' "${PACK_SERVER_DIR}/static/css/style.css"
-grep -q 'transform: translate3d(0, -12px, 0)' "${PACK_SERVER_DIR}/static/css/style.css"
-if grep -q 'animation: slideIn' "${PACK_SERVER_DIR}/static/css/style.css"; then
-    log "Legacy toast keyframe animation is still packaged"
-    exit 1
-fi
-grep -q '#fab-menu.is-open .fab-item' "${PACK_SERVER_DIR}/static/css/style.css"
-grep -q 'buttonsSignature' "${PACK_SERVER_DIR}/static/js/dashboard.js"
-grep -q 'type="button" class="quick-btn' "${PACK_SERVER_DIR}/static/js/dashboard.js"
-grep -q 'window.scrollTo(0, scrollY)' "${PACK_SERVER_DIR}/static/js/dashboard.js"
-grep -q "menu.classList.add('is-open')" "${PACK_SERVER_DIR}/templates/base.html"
-grep -q '.service-config-panel.is-open' "${PACK_SERVER_DIR}/static/css/style.css"
-grep -q '<details class="admin-details">' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'id="quick-buttons-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'id="home-assistant-panel"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -q 'class="admin-details-header"' "${PACK_SERVER_DIR}/templates/admin.html"
-grep -Fq '.admin-details[open] .admin-details-icon' "${PACK_SERVER_DIR}/static/css/style.css"
-if grep -q 'data-admin-collapse\|admin-collapse-panel\|toggleAdminCollapse' "${PACK_SERVER_DIR}/templates/admin.html" "${PACK_SERVER_DIR}/static/css/style.css" "${PACK_SERVER_DIR}/static/js/admin.js"; then
-    log "Legacy JavaScript-dependent admin collapse code is still packaged"
+log "Validating frontend download and navigation URLs"
+grep -q "window.location.href = appUrl('/api/export/csv')" "${SOURCE_DIR}/static/js/admin.js"
+grep -q "window.location.href = appUrl('/api/backup/export')" "${SOURCE_DIR}/static/js/admin.js"
+grep -q "normalized.startsWith(\`\${base}/\`)" "${SOURCE_DIR}/static/js/app.js"
+grep -q 'data-app-base="{{ app_base }}"' "${SOURCE_DIR}/templates/base.html"
+[ "$(grep -c '<details class="admin-details">' "${SOURCE_DIR}/templates/admin.html")" = "8" ]
+[ "$(grep -c '<span class="admin-details-heading">' "${SOURCE_DIR}/templates/admin.html")" = "8" ]
+[ "$(grep -c '<span class="admin-details-description">' "${SOURCE_DIR}/templates/admin.html")" = "8" ]
+grep -Fq '.admin-details[open] .admin-details-icon' "${SOURCE_DIR}/static/css/style.css"
+grep -Fq '.admin-details-content' "${SOURCE_DIR}/static/css/style.css"
+grep -Fq '@media (prefers-reduced-motion: reduce)' "${SOURCE_DIR}/static/css/style.css"
+grep -Fq '@media (prefers-reduced-transparency: reduce)' "${SOURCE_DIR}/static/css/style.css"
+grep -Fq '@media (prefers-contrast: more)' "${SOURCE_DIR}/static/css/style.css"
+grep -q '/static/js/motion.js' "${SOURCE_DIR}/templates/base.html"
+grep -q '/static/js/motion.js' "${SOURCE_DIR}/static/sw.js"
+grep -q 'function loadMcpApiKey' "${SOURCE_DIR}/static/js/admin.js"
+grep -q 'function generateMcpApiKey' "${SOURCE_DIR}/static/js/admin.js"
+grep -q 'function toggleMcpService' "${SOURCE_DIR}/static/js/admin.js"
+grep -q 'role="switch"' "${SOURCE_DIR}/templates/admin.html"
+grep -q 'id="mcp-settings-details"' "${SOURCE_DIR}/templates/admin.html"
+grep -q 'data-generate-mcp-key' "${SOURCE_DIR}/templates/admin.html"
+grep -q '/api/mcp/config' "${ROOT_DIR}/internal/app/routes.go"
+grep -q 'mcpEnabledSetting' "${ROOT_DIR}/internal/app/mcp.go"
+if grep -q 'data-admin-collapse\|admin-collapse-panel\|toggleAdminCollapse' \
+    "${SOURCE_DIR}/templates/admin.html" "${SOURCE_DIR}/static/css/style.css" "${SOURCE_DIR}/static/js/admin.js"; then
+    printf '[test] ERROR: legacy JavaScript admin collapse code remains.\n' >&2
     exit 1
 fi
 
-test_python="${VENV_DIR}/bin/python"
+log "Validating Go-only package configuration"
+stable_desc='<p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p>'
+grep -Fq "desc                  = ${stable_desc}" "${PACK_DIR}/manifest" || {
+    printf '[test] ERROR: manifest description must remain the stable product introduction; put release notes in CHANGELOG.md.\n' >&2
+    exit 1
+}
+[ -s "${ROOT_DIR}/CHANGELOG.md" ] || {
+    printf '[test] ERROR: CHANGELOG.md is missing.\n' >&2
+    exit 1
+}
+grep -q '^changelog[[:space:]]*=' "${PACK_DIR}/manifest"
+if grep -q 'install_dep_apps' "${PACK_DIR}/manifest"; then
+    printf '[test] ERROR: manifest still installs a Python runtime.\n' >&2
+    exit 1
+fi
+if grep -q 'gunicorn\|virtualenv\|python312\|wheelhouse\|wsgi:application' "${PACK_DIR}/cmd/main"; then
+    printf '[test] ERROR: launcher still references the legacy Python runtime.\n' >&2
+    exit 1
+fi
+grep -q 'baby-tracker-linux-amd64' "${PACK_DIR}/cmd/main"
+grep -q 'baby-tracker-linux-arm64' "${PACK_DIR}/cmd/main"
+grep -q 'BABY_TRACKER_GATEWAY_SOCKET' "${PACK_DIR}/cmd/main"
+grep -q 'validate_service_values' "${PACK_DIR}/cmd/main"
+bash -n "${PACK_DIR}/cmd/main"
+
+log "Validating data-share mapping and listener parser"
+rm -rf "${BUILD_DIR}/launcher-test"
+mkdir -p "${BUILD_DIR}/launcher-test/share/baby-tracker/data" "${BUILD_DIR}/launcher-test/pkgvar/data"
 (
     export TRIM_APPDEST="${BUILD_DIR}/launcher-test/app"
-    export TRIM_PKGVAR="${BUILD_DIR}/launcher-test/var"
+    export TRIM_PKGVAR="${BUILD_DIR}/launcher-test/pkgvar"
     export TRIM_PKGETC="${BUILD_DIR}/launcher-test/etc"
     export TRIM_PKGTMP="${BUILD_DIR}/launcher-test/tmp"
-    source "${ROOT_DIR}/packaging/baby-tracker/cmd/main"
-    find_python() { printf '%s' "${test_python}"; }
-    for address in '0.0.0.0' '127.0.0.1' '8.8.8.8' '192.168.1.10'; do
+    export TRIM_DATA_SHARE_PATHS="${BUILD_DIR}/launcher-test/share/baby-tracker/data"
+    source "${PACK_DIR}/cmd/main"
+    map_data_dir
+    [ -L "${TRIM_PKGVAR}/data" ]
+    [ "$(readlink "${TRIM_PKGVAR}/data")" = "${TRIM_DATA_SHARE_PATHS}" ]
+
+    for address in '0.0.0.0' '127.0.0.1' '8.8.8.8' '192.168.1.10' '01.02.03.004'; do
         normalized="$(normalize_bind_address "  ${address}  ")"
-        [ "${normalized}" = "${address}" ]
+        [ -n "${normalized}" ]
     done
-    for address in '999.1.1.1' '224.0.0.1'; do
+    [ "$(normalize_bind_address '01.02.03.004')" = '1.2.3.4' ]
+    for address in '999.1.1.1' '224.0.0.1' '239.1.1.1' 'not-an-ip'; do
         if normalize_bind_address "${address}" >/dev/null 2>&1; then
             exit 1
         fi
     done
+
     wizard_bind_address='0.0.0.0'
     wizard_port='18965'
     validate_service_values
@@ -154,390 +168,99 @@ test_python="${VENV_DIR}/bin/python"
     fi
 )
 
-log "Validating administrator user-row action visibility"
-"${VENV_DIR}/bin/python" - "${PACK_SERVER_DIR}/static/js/admin.js" <<'PY'
-from pathlib import Path
-import sys
-
-source = Path(sys.argv[1]).read_text(encoding="utf-8")
-expected = """        if (u.role !== 'admin') {
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-amber-400 hover:border-amber-500/30 transition-colors" data-reset-pw="${u.id}" data-reset-name="${esc(u.nickname || u.username)}">改密</button>`;
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-blue-400 hover:border-blue-500/30 transition-colors" data-rename-user="${u.id}" data-rename-name="${esc(u.username)}">改名</button>`;
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-red-400 hover:border-red-500/30 transition-colors" onclick="deleteUser(${u.id})">删除</button>`;
-        }
-"""
-if source.count(expected) != 1:
-    raise SystemExit("administrator user-row action visibility patch is missing or duplicated")
-
-ha_root_paths = (
-    "resource: 'api/ha/status',",
-    "resource: 'api/ha/feed-today',",
-    "resource: 'api/ha/last-feed',",
-    "resource: 'api/ha/excrete-today',",
-    'resource: "${base}/${cfg.resource}"',
-    'resource: "${base}/api/ha/button/${sw.id}"',
-)
-missing = [value for value in ha_root_paths if source.count(value) != 1]
-if missing:
-    raise SystemExit(f"HA root API paths are missing or duplicated: {missing}")
-if "resource: '/api/ha/" in source:
-    raise SystemExit("HA sensor paths still start with /api/ and can be rewritten by the fnOS gateway")
-PY
-
-rm -rf "${SMOKE_DATA_DIR}"
-rm -f "${SMOKE_COOKIE}"
-mkdir -p "${SMOKE_DATA_DIR}"
-rm -rf "${SMOKE_ETC_DIR}"
-mkdir -p "${SMOKE_ETC_DIR}"
-printf '%s\n' '192.168.1.10' > "${SMOKE_ETC_DIR}/bind_address"
-printf '%s\n' "${SMOKE_PORT}" > "${SMOKE_ETC_DIR}/service_port"
-log "Initializing packaged database without a local administrator"
-BABY_TRACKER_DATA_DIR="${SMOKE_DATA_DIR}" \
-PYTHONDONTWRITEBYTECODE=1 \
-    "${VENV_DIR}/bin/python" "${PACK_SERVER_DIR}/bootstrap.py"
-installed_admin_count="$("${VENV_DIR}/bin/python" -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT COUNT(*) FROM users WHERE role = ?", ("admin",)).fetchone()[0])' "${SMOKE_DATA_DIR}/baby.db")"
-[ "${installed_admin_count}" = "0" ]
-installed_user_count="$("${VENV_DIR}/bin/python" -c 'import sqlite3, sys; print(sqlite3.connect(sys.argv[1]).execute("SELECT COUNT(*) FROM users").fetchone()[0])' "${SMOKE_DATA_DIR}/baby.db")"
-[ "${installed_user_count}" = "0" ]
-log "Starting packaged WSGI application"
-chmod +x "${TEST_SERVICE_LAUNCHER}"
-rm -f "${SMOKE_ETC_DIR}/restart-called"
-rm -f "${SMOKE_SOCKET}"
+log "Building local smoke-test binary"
 (
-    cd "${PACK_SERVER_DIR}"
-    PYTHONDONTWRITEBYTECODE=1 \
-    BABY_TRACKER_DATA_DIR="${SMOKE_DATA_DIR}" \
-    SECRET_KEY="test-secret" \
-    TRIM_PKGETC="${SMOKE_ETC_DIR}" \
-    BABY_TRACKER_CMD_MAIN="${TEST_SERVICE_LAUNCHER}" \
-    "${VENV_DIR}/bin/gunicorn" \
-        --bind "unix:${SMOKE_SOCKET}" \
-        --bind "127.0.0.1:${SMOKE_PORT}" \
-        --workers 1 \
-        --access-logfile - \
-        --error-logfile - \
-        wsgi:application > "${SMOKE_LOG}" 2>&1
-) &
-server_pid=$!
-trap 'kill "${server_pid}" 2>/dev/null || true' EXIT
+    cd "${ROOT_DIR}"
+    CGO_ENABLED=0 go build -trimpath -o "${TEST_BINARY}" ./cmd/baby-tracker
+)
 
-for _ in $(seq 1 30); do
+rm -rf "${SMOKE_DIR}"
+mkdir -p "${SMOKE_DIR}/app/server" "${SMOKE_DIR}/var" "${SMOKE_DIR}/etc" "${SMOKE_DIR}/tmp"
+ln -s "${SOURCE_DIR}/templates" "${SMOKE_DIR}/app/server/templates"
+ln -s "${SOURCE_DIR}/static" "${SMOKE_DIR}/app/server/static"
+export TRIM_APPDEST="${SMOKE_DIR}/app"
+export TRIM_PKGVAR="${SMOKE_DIR}/var"
+export TRIM_PKGETC="${SMOKE_DIR}/etc"
+export TRIM_PKGTMP="${SMOKE_DIR}/tmp"
+export TRIM_DATA_SHARE_PATHS="${SMOKE_DATA_DIR}"
+export BABY_TRACKER_BINARY="${TEST_BINARY}"
+export BABY_TRACKER_CREATE_DEFAULT_ADMIN=1
+export wizard_bind_address="127.0.0.1"
+export wizard_port="${SMOKE_PORT}"
+source "${PACK_DIR}/cmd/main"
+
+log "Starting Go service through the fnOS launcher"
+start_process
+SERVER_PID="$(cat "${TRIM_PKGVAR}/app.pid")"
+
+ready=0
+for _ in $(seq 1 40); do
     if curl -fsS "http://127.0.0.1:${SMOKE_PORT}/login" >/dev/null 2>&1; then
+        ready=1
         break
     fi
-    sleep 0.5
+    sleep 0.25
 done
-
-direct_login_page="$(curl -fsS "http://127.0.0.1:${SMOKE_PORT}/login")"
-if grep -q 'gateway-login-button' <<< "${direct_login_page}"; then
-    log "Direct-port login page unexpectedly contains the fnOS gateway sign-in button"
+if [ "${ready}" != "1" ]; then
+    cat "${SMOKE_LOG}" >&2
     exit 1
 fi
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/css/style.css" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-192.png" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-180.png" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/icons/icon-512.png" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/tailwindcss.min.js" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/lucide.min.js" >/dev/null
-curl -fsS "http://127.0.0.1:${SMOKE_PORT}/static/vendor/chart.js-4.4.7.min.js" >/dev/null
-unauthenticated_api_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/api/records")"
-[ "${unauthenticated_api_status}" = "401" ]
-unauthenticated_service_config_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -d '{"bind_address":"192.168.1.20","port":"18965"}' \
-    "http://127.0.0.1:${SMOKE_PORT}/api/admin/service-config")"
-[ "${unauthenticated_service_config_status}" = "401" ]
-unauthenticated_page_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/")"
-[ "${unauthenticated_page_status}" = "302" ]
-spoofed_header_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://127.0.0.1:${SMOKE_PORT}/api/records")"
-[ "${spoofed_header_status}" = "401" ]
-unauthenticated_ha_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/api/ha/status")"
-[ "${unauthenticated_ha_status}" = "401" ]
-log "Testing first-login administrator password setup"
-gateway_initial_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -c "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/")"
-[ "${gateway_initial_status}" = "302" ]
-gateway_setup_required_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/users")"
-[ "${gateway_setup_required_status}" = "403" ]
-gateway_setup_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/setup-password")"
-grep -q 'setup-password-input' <<< "${gateway_setup_page}"
-gateway_setup_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
-    -X POST \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d "{\"password\":\"${SMOKE_ADMIN_PASSWORD}\",\"confirm_password\":\"${SMOKE_ADMIN_PASSWORD}\"}" \
-    "http://localhost/app/baby-tracker/api/auth/setup-password")"
-[ "${gateway_setup_status}" = "200" ]
-gateway_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/")"
-grep -q '/app/baby-tracker/static/css/style.css' <<< "${gateway_page}"
-gateway_dashboard_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/static/js/dashboard.js")"
-grep -q '/app/baby-tracker/api/records/today' <<< "${gateway_dashboard_js}"
-grep -q '/app/baby-tracker/api/quick-record/' <<< "${gateway_dashboard_js}"
-gateway_admin_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/static/js/admin.js")"
-[[ "${gateway_admin_js}" == *"resource: 'api/ha/status'"* ]]
-[[ "${gateway_admin_js}" == *'resource: "${base}/api/ha/button/${sw.id}"'* ]]
-[[ "${gateway_admin_js}" == *'syncHaServiceAddress(config);'* ]]
-[[ "${gateway_admin_js}" == *'syncHaServiceAddress(applied);'* ]]
-if [[ "${gateway_admin_js}" == *"resource: '/app/baby-tracker/api/ha/status'"* ]]; then
-    log "Gateway prefix unexpectedly rewrote the generated HA sensor path"
+
+login_page="$(curl -fsS "http://127.0.0.1:${SMOKE_PORT}/login")"
+grep -q '<title>登录 - Baby Tracker' <<< "${login_page}"
+if grep -q 'gateway-login-button' <<< "${login_page}"; then
+    printf '[test] ERROR: direct login page exposes the gateway-only button.\n' >&2
     exit 1
 fi
-gateway_admin_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/users")"
-[ "${gateway_admin_status}" = "200" ]
-gateway_users="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/users")"
-[ "$(printf '%s' "${gateway_users}" | jq '[.[] | select(.role == "admin")] | length')" = "1" ]
-[ "$(printf '%s' "${gateway_users}" | jq -r '.[] | select(.role == "admin") | .username')" = "${SMOKE_ADMIN_USER}" ]
-gateway_user_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -H 'X-Trim-Userid: 1001' \
-    -H 'X-Trim-Username: fnosuser' \
-    -H 'X-Trim-Isadmin: false' \
-    "http://localhost/app/baby-tracker/api/users")"
-[ "${gateway_user_status}" = "403" ]
-gateway_user_service_config_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1001' \
-    -H 'X-Trim-Username: fnosuser' \
-    -H 'X-Trim-Isadmin: false' \
-    -d '{"bind_address":"192.168.1.20","port":"18965"}' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "${gateway_user_service_config_status}" = "403" ]
-gateway_spa_js="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/static/js/spa.js" )"
-grep -q "'/app/baby-tracker/trends':" <<< "${gateway_spa_js}"
-log "Testing fnOS gateway logout and sign-in entry"
-gateway_logout_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
-    -X POST \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/auth/logout")"
-[ "${gateway_logout_status}" = "200" ]
-logged_out_page_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/")"
-[ "${logged_out_page_status}" = "302" ]
-gateway_login_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/login")"
-grep -q 'doGatewayLogin' <<< "${gateway_login_page}"
-grep -q 'gateway-login-button' <<< "${gateway_login_page}"
-gateway_relogin_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
-    -X POST \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/auth/gateway-login")"
-[ "${gateway_relogin_status}" = "200" ]
-gateway_admin_after_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/users")"
-[ "${gateway_admin_after_status}" = "200" ]
-log "Testing Home Assistant API key"
-ha_api_key="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X POST \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/ha/api-key" | jq -r '.api_key')"
-[ -n "${ha_api_key}" ] && [ "${ha_api_key}" != "null" ]
-ha_key_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer ${ha_api_key}" \
-    "http://127.0.0.1:${SMOKE_PORT}/api/ha/status")"
-[ "${ha_key_status}" = "200" ]
-log "Testing administrator password change from the management page"
-gateway_admin_id="$(printf '%s' "${gateway_users}" | jq -r '.[] | select(.role == "admin") | .id')"
-[ -n "${gateway_admin_id}" ] && [ "${gateway_admin_id}" != "null" ]
-gateway_admin_page="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/admin")"
-grep -q 'data-change-admin-pw' <<< "${gateway_admin_page}"
-grep -q '管理配置' <<< "${gateway_admin_page}"
-grep -q 'id="admin-bind-address"' <<< "${gateway_admin_page}"
-grep -q 'id="admin-service-port"' <<< "${gateway_admin_page}"
-grep -q 'data-save-service-config' <<< "${gateway_admin_page}"
-grep -q 'data-toggle-service-config' <<< "${gateway_admin_page}"
-grep -q 'id="service-config-panel"' <<< "${gateway_admin_page}"
-grep -q 'id="service-config-status"' <<< "${gateway_admin_page}"
-grep -q 'service-config-warning' <<< "${gateway_admin_page}"
-gateway_service_config="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "$(printf '%s' "${gateway_service_config}" | jq -r '.bind_address')" = '192.168.1.10' ]
-[ "$(printf '%s' "${gateway_service_config}" | jq -r '.port')" = "${SMOKE_PORT}" ]
-[ "$(printf '%s' "${gateway_service_config}" | jq -r '.enabled')" = 'true' ]
-gateway_service_config_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d '{"bind_address":"192.168.1.20","port":"18965"}' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "$(printf '%s' "${gateway_service_config_update}" | jq -r '.bind_address')" = '192.168.1.20' ]
-[ "$(printf '%s' "${gateway_service_config_update}" | jq -r '.port')" = '18965' ]
-[ "$(printf '%s' "${gateway_service_config_update}" | jq -r '.restarted')" = 'true' ]
-for _ in $(seq 1 20); do
-    [ -f "${SMOKE_ETC_DIR}/restart-called" ] && break
-    sleep 0.1
-done
-[ -f "${SMOKE_ETC_DIR}/restart-called" ]
-[ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '192.168.1.20' ]
-[ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18965' ]
-log "Testing unrestricted listener choices and disabling TCP listening"
-gateway_wildcard_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d '{"bind_address":"0.0.0.0","port":"18966"}' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "$(printf '%s' "${gateway_wildcard_update}" | jq -r '.bind_address')" = '0.0.0.0' ]
-[ "$(printf '%s' "${gateway_wildcard_update}" | jq -r '.port')" = '18966' ]
-for _ in $(seq 1 20); do
-    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = '0.0.0.0:18966' ] && break
-    sleep 0.1
-done
-[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = '0.0.0.0:18966' ]
-[ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '0.0.0.0' ]
-[ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18966' ]
 
-gateway_public_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d '{"bind_address":"8.8.8.8","port":"18967"}' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "$(printf '%s' "${gateway_public_update}" | jq -r '.bind_address')" = '8.8.8.8' ]
-[ "$(printf '%s' "${gateway_public_update}" | jq -r '.port')" = '18967' ]
-for _ in $(seq 1 20); do
-    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = '8.8.8.8:18967' ] && break
-    sleep 0.1
-done
-[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = '8.8.8.8:18967' ]
-[ "$(cat "${SMOKE_ETC_DIR}/bind_address")" = '8.8.8.8' ]
-[ "$(cat "${SMOKE_ETC_DIR}/service_port")" = '18967' ]
-
-gateway_disabled_update="$(curl -fsS --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d '{"bind_address":"","port":""}' \
-    "http://localhost/app/baby-tracker/api/admin/service-config")"
-[ "$(printf '%s' "${gateway_disabled_update}" | jq -r '.bind_address')" = '' ]
-[ "$(printf '%s' "${gateway_disabled_update}" | jq -r '.port')" = '' ]
-for _ in $(seq 1 20); do
-    [ "$(cat "${SMOKE_ETC_DIR}/restart-called" 2>/dev/null || true)" = 'disabled' ] && break
-    sleep 0.1
-done
-[ "$(cat "${SMOKE_ETC_DIR}/restart-called")" = 'disabled' ]
-[ ! -e "${SMOKE_ETC_DIR}/bind_address" ]
-[ ! -e "${SMOKE_ETC_DIR}/service_port" ]
-gateway_admin_change_status="$(curl -sS -o /dev/null -w '%{http_code}' --unix-socket "${SMOKE_SOCKET}" \
-    -b "${SMOKE_COOKIE}" \
-    -X PUT \
-    -H 'Content-Type: application/json' \
-    -H 'X-Trim-Userid: 1000' \
-    -H 'X-Trim-Username: fnosadmin' \
-    -H 'X-Trim-Isadmin: true' \
-    -d "{\"password\":\"${SMOKE_CHANGED_ADMIN_PASSWORD}\"}" \
-    "http://localhost/app/baby-tracker/api/users/${gateway_admin_id}/password")"
-[ "${gateway_admin_change_status}" = "200" ]
-new_password_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"${SMOKE_ADMIN_USER}\",\"password\":\"${SMOKE_CHANGED_ADMIN_PASSWORD}\"}" \
-    "http://127.0.0.1:${SMOKE_PORT}/api/auth/login")"
-[ "${new_password_status}" = "200" ]
-old_password_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"${SMOKE_ADMIN_USER}\",\"password\":\"${SMOKE_ADMIN_PASSWORD}\"}" \
-    "http://127.0.0.1:${SMOKE_PORT}/api/auth/login")"
-[ "${old_password_status}" = "401" ]
-admin_rows="$("${VENV_DIR}/bin/python" -c 'import sqlite3, sys; print(",".join(row[0] for row in sqlite3.connect(sys.argv[1]).execute("SELECT username FROM users WHERE role = ? ORDER BY id", ("admin",))))' "${SMOKE_DATA_DIR}/baby.db")"
-[ "${admin_rows}" = "${SMOKE_ADMIN_USER}" ]
-if curl -fsS \
+curl -fsS -c "${SMOKE_COOKIE}" \
     -H 'Content-Type: application/json' \
     -d '{"username":"admin","password":"admin123"}' \
-    "http://127.0.0.1:${SMOKE_PORT}/api/auth/login" >/dev/null 2>&1; then
-    log "Default administrator credentials were unexpectedly accepted"
+    "http://127.0.0.1:${SMOKE_PORT}/api/auth/login" >/dev/null
+curl -fsS -b "${SMOKE_COOKIE}" -c "${SMOKE_COOKIE}" \
+    -H 'Content-Type: application/json' \
+    -d '{"password":"ChangedAdmin456!","confirm_password":"ChangedAdmin456!"}' \
+    "http://127.0.0.1:${SMOKE_PORT}/api/auth/setup-password" >/dev/null
+
+curl -fsS -b "${SMOKE_COOKIE}" "http://127.0.0.1:${SMOKE_PORT}/admin" -o "${SMOKE_DIR}/admin.html"
+[ "$(grep -c '<details class="admin-details">' "${SMOKE_DIR}/admin.html")" = "8" ]
+curl -fsS -b "${SMOKE_COOKIE}" -D "${SMOKE_DIR}/csv.headers" \
+    "http://127.0.0.1:${SMOKE_PORT}/api/export/csv" -o "${SMOKE_DIR}/direct.csv"
+grep -qi '^content-disposition: attachment;' "${SMOKE_DIR}/csv.headers"
+[ "$(od -An -tx1 -N3 "${SMOKE_DIR}/direct.csv" | tr -d '[:space:]')" = "efbbbf" ]
+
+curl -fsS -b "${SMOKE_COOKIE}" -D "${SMOKE_DIR}/backup.headers" \
+    "http://127.0.0.1:${SMOKE_PORT}/api/backup/export" -o "${SMOKE_DIR}/direct-backup.json"
+grep -qi '^content-disposition: attachment;' "${SMOKE_DIR}/backup.headers"
+[ "$(jq -r '.version' "${SMOKE_DIR}/direct-backup.json")" = "1" ]
+
+log "Testing gateway-prefixed downloads and HTML rewriting"
+curl -fsS --unix-socket "${SMOKE_SOCKET}" -c "${SMOKE_DIR}/gateway.cookies" \
+    -H 'X-Trim-Userid: 1000' \
+    -H 'X-Trim-Username: fnosadmin' \
+    -H 'X-Trim-Isadmin: true' \
+    "http://localhost/app/baby-tracker/admin" -o "${SMOKE_DIR}/gateway-admin.html"
+[ "$(grep -c '<details class="admin-details">' "${SMOKE_DIR}/gateway-admin.html")" = "8" ]
+if grep -q '/app/baby-tracker/app/baby-tracker' "${SMOKE_DIR}/gateway-admin.html"; then
+    printf '[test] ERROR: gateway-prefixed HTML was rewritten twice.\n' >&2
     exit 1
 fi
-kill "${server_pid}" 2>/dev/null || true
-wait "${server_pid}" 2>/dev/null || true
+curl -fsS --unix-socket "${SMOKE_SOCKET}" -b "${SMOKE_DIR}/gateway.cookies" \
+    "http://localhost/app/baby-tracker/api/export/csv" -o "${SMOKE_DIR}/gateway.csv"
+[ "$(od -An -tx1 -N3 "${SMOKE_DIR}/gateway.csv" | tr -d '[:space:]')" = "efbbbf" ]
+curl -fsS --unix-socket "${SMOKE_SOCKET}" -b "${SMOKE_DIR}/gateway.cookies" \
+    "http://localhost/app/baby-tracker/api/backup/export" -o "${SMOKE_DIR}/gateway-backup.json"
+[ "$(jq -r '.version' "${SMOKE_DIR}/gateway-backup.json")" = "1" ]
+
+spoof_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -H 'X-Trim-Userid: 1000' \
+    -H 'X-Trim-Username: fnosadmin' \
+    -H 'X-Trim-Isadmin: true' \
+    "http://127.0.0.1:${SMOKE_PORT}/app/baby-tracker/api/records")"
+[ "${spoof_status}" = "401" ]
+
+stop_process
+SERVER_PID=""
 trap - EXIT
-log "fnOS source tests and packaged smoke test passed"
+
+log "Go tests and service smoke test passed"

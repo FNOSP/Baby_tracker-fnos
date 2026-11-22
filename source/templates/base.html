@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-base="{{ app_base }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -85,7 +85,7 @@
                 <i data-lucide="moon" class="w-4 h-4 theme-icon-moon"></i>
             </button>
             <div id="user-avatar-desktop" class="w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-bold cursor-pointer" onclick="showNicknameModal()" title="修改昵称">
-                {% if current_user %}{{ current_user.nickname[:1] or current_user.username[:1] }}{% endif %}
+                {% if current_user %}{{ initial }}{% endif %}
             </div>
             {% if current_user %}
             <button onclick="doLogout()" class="text-text-muted hover:text-red-400 transition-colors" title="退出">
@@ -175,6 +175,7 @@
         {% block content %}{% endblock %}
     </main>
 
+    <script src="/static/js/motion.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/spa.js"></script>
     {% block scripts %}{% endblock %}
@@ -208,8 +209,10 @@
 
         // 登出
         async function doLogout() {
-            await api('/api/auth/logout', { method: 'POST' });
-            window.location.href = '/';
+            try {
+                await api('/api/auth/logout', { method: 'POST' });
+            } catch (e) {}
+            window.location.href = appUrl('/login?logged_out=1');
         }
         // 昵称弹窗
         function showNicknameModal() {
@@ -321,7 +324,9 @@
     <!-- Service Worker 注册 -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+            navigator.serviceWorker.register(appUrl('/static/sw.js'), {
+                scope: appUrl('/')
+            }).catch(() => {});
         }
     </script>
 </body>

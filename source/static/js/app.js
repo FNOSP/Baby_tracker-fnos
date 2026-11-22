@@ -4,6 +4,24 @@ function getLocalDate() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// ── Gateway-aware URL Helper ─────────────────────────────
+function appBasePath() {
+    return (document.documentElement.dataset.appBase || '').replace(/\/+$/, '');
+}
+
+function appUrl(path) {
+    const value = String(path || '');
+    if (/^(?:[a-z]+:)?\/\//i.test(value) || value.startsWith('#') || value.startsWith('javascript:')) {
+        return value;
+    }
+    const normalized = value.startsWith('/') ? value : `/${value}`;
+    const base = appBasePath();
+    if (base && (normalized === base || normalized.startsWith(`${base}/`))) {
+        return normalized;
+    }
+    return `${base}${normalized}`;
+}
+
 // ── Toast ─────────────────────────────────────────────────
 let toastHideTimer = null;
 let toastShowFrame = null;
@@ -40,6 +58,7 @@ function showToast(msg) {
 
 // ── API Helper ───────────────────────────────────────────
 async function api(url, options = {}) {
+    url = appUrl(url);
     // GET 请求加时间戳防缓存
     if (!options.method || options.method === 'GET') {
         const sep = url.includes('?') ? '&' : '?';

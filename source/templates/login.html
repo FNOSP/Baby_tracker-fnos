@@ -23,6 +23,17 @@
         </div>
         <div id="login-error" class="text-red-400 text-xs hidden"></div>
         <button class="btn-primary w-full py-3 text-base" onclick="doLogin()">登录</button>
+        {% if gateway_login_available %}
+        <div class="relative py-1">
+            <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-border"></div></div>
+            <div class="relative flex justify-center text-xs"><span class="px-2 bg-surface text-text-muted">或</span></div>
+        </div>
+        <button id="gateway-login-button" class="btn-secondary w-full py-3 text-sm flex items-center justify-center gap-2" onclick="doGatewayLogin()">
+            <i data-lucide="server" class="w-4 h-4"></i>
+            使用飞牛账号登录
+        </button>
+        <div id="gateway-login-error" class="text-red-400 text-xs hidden"></div>
+        {% endif %}
     </div>
 
     <div class="text-center mt-4">
@@ -53,7 +64,21 @@ async function doLogin() {
             body: JSON.stringify({ username, password })
         });
         showToast('登录成功');
-        setTimeout(() => window.location.href = '/', 500);
+        setTimeout(() => window.location.href = appUrl('/'), 500);
+    } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+    }
+}
+
+async function doGatewayLogin() {
+    const errEl = document.getElementById('gateway-login-error');
+    errEl.classList.add('hidden');
+
+    try {
+        await api('/api/auth/gateway-login', { method: 'POST' });
+        showToast('登录成功');
+        setTimeout(() => window.location.href = appUrl('/'), 500);
     } catch (e) {
         errEl.textContent = e.message;
         errEl.classList.remove('hidden');
