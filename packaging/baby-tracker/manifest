@@ -15,4 +15,4 @@ service_port          = 8964
 checkport             = false
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 1.8.1：后端迁移至 Go 原生二进制并移除 Python 运行时依赖；修复统一网关下 CSV 导出与数据备份 Not Found；管理页八个配置项统一折叠结构；完善全局动效与减少动态效果支持；新增 MCP 管理开关、连接配置和独立 API Key，统一网关保持禁用；成长页统一布局并优化日程切换稳定性；修复趋势页日/月/时选中态可读性；默认疫苗规划更新至 2026 版。
+changelog             = 1.8.2：后端迁移至 Go 原生二进制并移除 Python 运行时依赖；修复统一网关下 CSV 导出与数据备份 Not Found；管理页八个配置项统一折叠结构；完善全局动效与减少动态效果支持；新增 MCP 管理开关、连接配置和独立 API Key，统一网关保持禁用；成长页统一布局并优化日程切换稳定性；修复趋势页日/月/时选中态可读性；默认疫苗规划更新至 2026 版。
