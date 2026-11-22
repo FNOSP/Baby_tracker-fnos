@@ -4,5 +4,5 @@ Before any Go coding, review, debugging, troubleshooting, or setup task, load th
 
 ## Release metadata
 
-- Keep the manifest `desc` field as the stable product introduction. Do not add feature announcements, implementation details, compatibility notes, or version-specific changes there.
+- Keep the manifest `desc` field at the approved content from commit `77411b8`. Do not add feature announcements, implementation details, compatibility notes, or version-specific changes there.
 - Record every user-visible change in `CHANGELOG.md` under the matching version, then mirror a concise summary in the manifest `changelog` field.

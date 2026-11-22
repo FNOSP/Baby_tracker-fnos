@@ -119,11 +119,13 @@ cd Baby_tracker-fnos
 推送 `v*` 标签后，[release.yml](.github/workflows/release.yml) 会自动构建、测试并发布 FPK：
 
 ```bash
-git tag v1.8.1
-git push origin v1.8.1
+git tag v1.8.2
+git push origin v1.8.2
 ```
 
 标签版本必须与 `packaging/baby-tracker/manifest` 中的 `version` 一致。
+
+推送到 `main`、提交面向 `main` 的 Pull Request，或手动运行 [build.yml](.github/workflows/build.yml) 时，GitHub Actions 会执行测试并构建 FPK，但不会创建 Release。构建完成后，可在该次 Actions 运行的 Artifacts 区域下载 `baby-tracker.fpk`、SHA256 校验文件和源码信息，artifact 保留 30 天。
 
 ## 目录
 

@@ -3,6 +3,13 @@
 本文件记录用户可见的功能、兼容性和界面更新。应用中心介绍保持稳定，发布内容统一记录在这里，并同步摘要到
 `packaging/baby-tracker/manifest` 的 `changelog` 字段。
 
+## 1.8.2 - 2026-11-22
+
+### 构建
+
+- GitHub Actions 在推送到 `main`、提交面向 `main` 的 Pull Request 和手动运行时自动构建 FPK，并上传保留 30 天的 Artifacts。
+- 应用中心介绍补充 Home Assistant 集成与管理密码重置说明。
+
 ## 1.8.1 - 2026-11-22
 
 ### 新增

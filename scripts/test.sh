@@ -104,7 +104,7 @@ if grep -q 'data-admin-collapse\|admin-collapse-panel\|toggleAdminCollapse' \
 fi
 
 log "Validating Go-only package configuration"
-stable_desc='<p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p>'
+stable_desc='<p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p><p>应用支持 Home Assistant 集成：在“管理 > 管理配置”生成 API 密钥，然后在“Home Assistant 集成”中配置服务地址并生成 YAML。</p><p><strong>重置管理密码：</strong>从飞牛桌面重新进入应用，通过统一网关一键登录，在“管理 > 管理配置”点击“修改管理密码”。</p>'
 grep -Fq "desc                  = ${stable_desc}" "${PACK_DIR}/manifest" || {
     printf '[test] ERROR: manifest description must remain the stable product introduction; put release notes in CHANGELOG.md.\n' >&2
     exit 1

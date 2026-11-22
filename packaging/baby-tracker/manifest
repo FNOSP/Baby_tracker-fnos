@@ -1,7 +1,7 @@
 appname               = baby-tracker
-version               = 1.8.1
+version               = 1.8.2
 display_name          = Baby Tracker
-desc                  = <p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p>
+desc                  = <p>Baby Tracker 用于记录新生儿与婴幼儿的喂养、排泄、成长和健康数据，所有数据保存在飞牛本地。</p><p>应用支持 Home Assistant 集成：在“管理 > 管理配置”生成 API 密钥，然后在“Home Assistant 集成”中配置服务地址并生成 YAML。</p><p><strong>重置管理密码：</strong>从飞牛桌面重新进入应用，通过统一网关一键登录，在“管理 > 管理配置”点击“修改管理密码”。</p>
 source                = thirdparty
 platform              = all
 maintainer            = XiGeMaX
@@ -15,4 +15,4 @@ service_port          = 8964
 checkport             = false
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 1.8.1：后端迁移至 Go 原生二进制并移除 Python 运行时依赖；修复统一网关下 CSV 导出与数据备份 Not Found；管理页八个配置项统一折叠结构；完善全局动效与减少动态效果支持；新增 MCP 管理开关、连接配置和独立 API Key，统一网关保持禁用；成长页统一布局并优化日程切换稳定性；修复趋势页日/月/时选中态可读性；默认疫苗规划更新至 2026 版。
+changelog             = 1.8.2：新增 GitHub Actions 自动构建 FPK 并上传保留 30 天的 Artifacts；应用中心介绍补充 Home Assistant 集成与管理密码重置说明。

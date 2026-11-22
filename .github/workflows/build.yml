@@ -1,0 +1,86 @@
+name: Build FPK
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-fpk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-fpk:
+    name: Build FPK artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Run tests
+        run: ./scripts/test.sh
+
+      - name: Build FPK
+        run: ./scripts/build.sh
+
+      - name: Prepare workflow artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(awk -F= '
+            /^version[[:space:]]*=/ {
+              value = $2
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+              print value
+              exit
+            }
+          ' packaging/baby-tracker/manifest)"
+
+          if [ -z "${version}" ]; then
+            echo "Unable to read version from packaging/baby-tracker/manifest" >&2
+            exit 1
+          fi
+
+          test -s dist/baby-tracker.fpk
+          test -s dist/SOURCE_INFO.txt
+          (
+            cd dist
+            sha256sum baby-tracker.fpk > baby-tracker.fpk.sha256
+          )
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=baby-tracker-${version}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          ls -lh dist
+
+      - name: Upload FPK artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: |
+            dist/baby-tracker.fpk
+            dist/baby-tracker.fpk.sha256
+            dist/SOURCE_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
