@@ -4,4 +4,19 @@ packaging/baby-tracker/app/server/
 .build/
 __pycache__/
 *.pyc
+bin/
+dist/
+/baby-tracker
+coverage.out
+*.test
+
+# JavaScript dependencies
+node_modules/
+
+# IDE and operating system files
+.trae/
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store

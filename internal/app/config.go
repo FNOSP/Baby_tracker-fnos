@@ -6,11 +6,15 @@ import (
 	"strings"
 )
 
-const defaultGatewayPrefix = "/app/baby-tracker"
+const (
+	defaultGatewayPrefix = "/app/baby-tracker"
+	defaultListenAddress = "0.0.0.0:5000"
+)
 
 // Config contains the runtime paths and listener settings used by the server.
 type Config struct {
 	DataDir            string
+	LegacyDataDirs     []string
 	WebDir             string
 	UnixSocket         string
 	ListenAddress      string
@@ -34,23 +38,52 @@ func LoadConfig() Config {
 	if dataDir == "" {
 		dataDir = filepath.Join(".", "data")
 	}
+	var legacyDataDirs []string
+	if legacyDataDir := strings.TrimSpace(os.Getenv("BABY_TRACKER_LEGACY_DATA_DIR")); legacyDataDir != "" {
+		legacyDataDirs = append(legacyDataDirs, legacyDataDir)
+	}
+	unixSocket := strings.TrimSpace(os.Getenv("BABY_TRACKER_GATEWAY_SOCKET"))
+	listenAddress := strings.TrimSpace(os.Getenv("BABY_TRACKER_LISTEN_ADDRESS"))
+	if listenAddress == "" && unixSocket == "" {
+		if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+			listenAddress = ":" + port
+		} else {
+			listenAddress = defaultListenAddress
+		}
+	}
+	basePath := normalizePath(os.Getenv("BABY_TRACKER_BASE_PATH"))
+	if basePath == "/" {
+		basePath = ""
+	}
 	prefix := strings.TrimSpace(os.Getenv("BABY_TRACKER_GATEWAY_PREFIX"))
+	if prefix == "" {
+		prefix = basePath
+	}
 	if prefix == "" {
 		prefix = defaultGatewayPrefix
 	}
-	prefix = "/" + strings.Trim(prefix, "/")
+	prefix = normalizeGatewayPrefix(prefix)
 
 	return Config{
 		DataDir:            dataDir,
+		LegacyDataDirs:     legacyDataDirs,
 		WebDir:             webDir,
-		UnixSocket:         strings.TrimSpace(os.Getenv("BABY_TRACKER_GATEWAY_SOCKET")),
-		ListenAddress:      strings.TrimSpace(os.Getenv("BABY_TRACKER_LISTEN_ADDRESS")),
+		UnixSocket:         unixSocket,
+		ListenAddress:      listenAddress,
 		GatewayPrefix:      prefix,
 		SessionSecret:      strings.TrimSpace(os.Getenv("SECRET_KEY")),
 		EtcDir:             strings.TrimSpace(os.Getenv("TRIM_PKGETC")),
 		LauncherPath:       strings.TrimSpace(os.Getenv("BABY_TRACKER_CMD_MAIN")),
 		CreateDefaultAdmin: envBool("BABY_TRACKER_CREATE_DEFAULT_ADMIN"),
 	}
+}
+
+func normalizeGatewayPrefix(value string) string {
+	prefix := strings.TrimRight(normalizePath(value), "/")
+	if prefix == "" {
+		return defaultGatewayPrefix
+	}
+	return prefix
 }
 
 func envBool(name string) bool {

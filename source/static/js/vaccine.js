@@ -5,24 +5,35 @@ const GROWTH_TAB_TRANSITION_MS = 280;
 let _currentTab = 'schedule';
 let _healthLoaded = false;
 let _countdownLoaded = false;
+let _countdownDataLoaded = false;
 let _scheduleLoaded = false;
+let _vaccineListRendered = false;
+let _vaccineRequest = null;
+let _scheduleRequest = null;
+let _vaccineSummaryTimer = null;
 let _growthTabsReady = false;
 let _growthTabAnimations = [];
 let _growthTabSwitchToken = 0;
 
 function initVaccine() {
     // 重置 Tab 状态及事件委托标志，保证 SPA 重新进入时可重入
+    clearTimeout(_vaccineSummaryTimer);
+    vaccineData = null;
+    healthData = null;
     _currentTab = 'schedule';
     _healthLoaded = false;
     _countdownLoaded = false;
+    _countdownDataLoaded = false;
     _vaccineDelegateBound = false;
     _scheduleLoaded = false;
+    _vaccineListRendered = false;
+    _vaccineRequest = null;
+    _scheduleRequest = null;
+    _vaccineSummaryTimer = null;
     _growthTabsReady = false;
     _growthTabAnimations = [];
     bindGrowthTabNavigation();
     switchTab('schedule', { immediate: true });
-    loadVaccine();
-    loadHealth();
 }
 
 document.addEventListener('DOMContentLoaded', initVaccine);
@@ -43,10 +54,24 @@ function switchTab(tab, options = {}) {
     }
     _growthTabsReady = true;
 
-    // 各页签只负责补齐自己的数据；首次进入前会预加载，避免切换时内容突然撑开。
+    // 各页签按需加载并渲染；隐藏页签不提前创建长列表，避免切页时集中布局。
     if (tab === 'schedule' && !_scheduleLoaded) initCalendar();
+    if (tab === 'vaccine') {
+        clearTimeout(_vaccineSummaryTimer);
+        _vaccineSummaryTimer = null;
+        if (vaccineData && _vaccineListRendered) updateVaccineAge();
+        else if (vaccineData) paintVaccineData();
+        else loadVaccine();
+    }
     if (tab === 'health' && !_healthLoaded) loadHealth();
-    if (tab === 'countdown' && !_countdownLoaded) loadCountdown();
+    if (tab === 'countdown' && !_countdownLoaded) {
+        if (_countdownDataLoaded) {
+            renderCountdownList();
+            _countdownLoaded = true;
+        } else {
+            loadCountdown();
+        }
+    }
 }
 
 function updateGrowthTabChrome(tab, animateIndicator) {
@@ -231,22 +256,53 @@ function bindGrowthTabNavigation() {
     document.fonts?.ready.then(() => positionGrowthTabIndicator(false));
 }
 
-async function loadVaccine() {
+async function loadVaccine({ paint = true } = {}) {
+    const request = _vaccineRequest || api('/api/vaccine/schedule');
+    _vaccineRequest = request;
     try {
-        vaccineData = await api('/api/vaccine/schedule');
-        if (vaccineData.error && !vaccineData.overview) {
-            document.getElementById('vaccine-overview').innerHTML =
-                `<div class="card"><p class="text-text-muted text-sm text-center">${esc(vaccineData.error)}</p></div>`;
-            document.getElementById('vaccine-list').innerHTML = '';
-            document.getElementById('vaccine-age').textContent = '';
-            return;
-        }
-        renderOverview();
-        renderList();
+        vaccineData = await request;
+        if (paint) paintVaccineData();
+        else updateVaccineAge();
     } catch (e) {
         console.error('加载疫苗数据失败:', e);
-        document.getElementById('vaccine-overview').innerHTML =
-            `<div class="card"><p class="text-text-muted text-sm text-center">${esc(e.message || '加载失败')}</p></div>`;
+        if (paint) paintVaccineError(e.message || '加载失败');
+    } finally {
+        if (_vaccineRequest === request) _vaccineRequest = null;
+    }
+}
+
+function updateVaccineAge() {
+    const age = document.getElementById('vaccine-age');
+    if (!age) return;
+    const overview = vaccineData?.overview;
+    age.textContent = overview
+        ? `${overview.age_months}月龄 (${overview.age_days}天)`
+        : '';
+}
+
+function paintVaccineError(message) {
+    const overview = document.getElementById('vaccine-overview');
+    const list = document.getElementById('vaccine-list');
+    if (overview) {
+        overview.innerHTML = `<div class="card"><p class="text-text-muted text-sm text-center">${esc(message)}</p></div>`;
+    }
+    if (list) list.innerHTML = '';
+    const age = document.getElementById('vaccine-age');
+    if (age) age.textContent = '';
+    _vaccineListRendered = false;
+}
+
+function paintVaccineData() {
+    if (!vaccineData) return;
+    if (vaccineData.error && !vaccineData.overview) {
+        paintVaccineError(vaccineData.error);
+        return;
+    }
+    renderOverview();
+    _vaccineListRendered = false;
+    if (_currentTab === 'vaccine') {
+        renderList();
+        _vaccineListRendered = true;
     }
 }
 
@@ -294,7 +350,7 @@ function renderOverview() {
             <span class="text-xs font-mono text-accent">${ov.done_count}/${ov.total_doses}</span>
         </div>
         <div class="w-full h-2 bg-border rounded-full overflow-hidden">
-            <div class="h-full bg-accent rounded-full transition-all duration-500" style="width:${pct}%"></div>
+            <div class="h-full bg-accent rounded-full progress-bar-fill" style="width:${pct}%"></div>
         </div>
         <div class="flex justify-between mt-1">
             <span class="text-[10px] text-red-400">${ov.overdue_count > 0 ? ov.overdue_count + '剂逾期' : ''}</span>
@@ -348,20 +404,20 @@ function renderList() {
                     ${nextDose ? `<span class="text-[10px] ${nextDose.status === 'overdue' ? 'text-red-400' : 'text-text-muted'} font-mono">下次: 第${nextDose.dose_index}剂 ${nextDose.due_date.slice(5)}</span>` : ''}
                 </div>
             </div>
-            <div class="flex flex-wrap gap-2">`;
+            <div class="growth-dose-grid">`;
 
         doses.forEach(d => {
             const statusConfig = {
-                done: { bg: 'bg-accent/10 text-accent border-accent/20', icon: 'check', label: d.vaccinated_date || '' },
-                overdue: { bg: 'bg-red-500/10 text-red-400 border-red-500/20', icon: 'alert-circle', label: '逾期' },
-                upcoming: { bg: 'bg-surface text-text-muted border-border', icon: 'clock', label: d.due_date ? d.due_date.slice(5) : '' },
+                done: { icon: 'check', label: d.vaccinated_date || '' },
+                overdue: { icon: 'alert-circle', label: '逾期' },
+                upcoming: { icon: 'clock', label: d.due_date ? d.due_date.slice(5) : '' },
             };
             const cfg = statusConfig[d.status] || statusConfig.upcoming;
-            html += `<button class="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-mono ${cfg.bg} transition-colors hover:opacity-80"
+            html += `<button type="button" class="vaccine-plan-button" data-plan-status="${d.status}"
                 data-dose-click data-vaccine-name="${esc(d.name)}" data-dose-index="${d.dose_index}" data-status="${d.status}" data-due-date="${esc(d.due_date || '')}" data-custom="${d.is_custom ? '1' : '0'}" data-vaccinated-date="${esc(d.vaccinated_date || '')}" data-note="${esc(d.note_text || d.note || '')}">
-                <i data-lucide="${cfg.icon}" class="w-3 h-3"></i>
-                第${d.dose_index}剂
-                <span class="text-[9px] opacity-70">${cfg.label}</span>
+                <i data-lucide="${cfg.icon}" class="vaccine-plan-icon"></i>
+                <span class="vaccine-plan-label">第${d.dose_index}剂</span>
+                <span class="vaccine-plan-meta">${cfg.label}</span>
             </button>`;
         });
 
@@ -401,9 +457,10 @@ function showPlanDateModal(name, doseIndex, dueDate, isCustom) {
     document.getElementById('pdm-date').value = dueDate || new Date().toISOString().slice(0, 10);
     document.getElementById('plan-date-modal-title').textContent = `${name} 第${doseIndex}剂`;
     const m = document.getElementById('plan-date-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#pdm-date-trigger, #pdm-date',
+        onDismiss: closePlanDateModal,
+    });
 }
 
 async function deleteVaccinePlan() {
@@ -425,8 +482,7 @@ async function deleteVaccinePlan() {
 
 function closePlanDateModal() {
     const m = document.getElementById('plan-date-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function savePlanDate() {
@@ -462,15 +518,15 @@ function showVaccineModal(name, doseIndex, dueDate) {
     document.getElementById('vm-note').value = '';
     document.getElementById('vaccine-modal-title').textContent = `${name} 第${doseIndex}剂`;
     const m = document.getElementById('vaccine-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#vm-date-trigger, #vm-date',
+        onDismiss: closeVaccineModal,
+    });
 }
 
 function closeVaccineModal() {
     const m = document.getElementById('vaccine-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function saveVaccineRecord() {
@@ -515,15 +571,15 @@ function showEditVaccineModal(name, doseIndex, vaccinatedDate, note) {
     document.getElementById('evm-note').value = note || '';
     document.getElementById('edit-vaccine-modal-title').textContent = `${name} 第${doseIndex}剂`;
     const m = document.getElementById('edit-vaccine-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#evm-date-trigger, #evm-date',
+        onDismiss: closeEditVaccineModal,
+    });
 }
 
 function closeEditVaccineModal() {
     const m = document.getElementById('edit-vaccine-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function updateVaccineRecord() {
@@ -568,16 +624,15 @@ function showAddVaccineModal() {
     _doseCounter = 0;
     addDoseRow();
     const m = document.getElementById('add-vaccine-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
-    document.getElementById('av-name').focus();
+    openAppModal(m, {
+        focusSelector: '#av-name',
+        onDismiss: closeAddVaccineModal,
+    });
 }
 
 function closeAddVaccineModal() {
     const m = document.getElementById('add-vaccine-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 function addDoseRow() {
@@ -586,10 +641,10 @@ function addDoseRow() {
     const row = document.createElement('div');
     row.className = 'flex items-center gap-2 dose-row';
     row.innerHTML = `
-        <span class="text-xs text-text-muted w-10 flex-shrink-0">第${_doseCounter}剂</span>
-        <input type="date" class="input-field font-mono flex-1 text-xs" value="${new Date().toISOString().slice(0, 10)}">
-        <input type="text" class="input-field flex-1 text-xs" placeholder="备注">
-        ${_doseCounter > 1 ? `<button onclick="removeDoseRow(this)" class="text-text-muted hover:text-red-400 transition-colors flex-shrink-0 p-1"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>` : ''}
+        <span class="dose-row-index text-text-muted w-10 flex-shrink-0">第${_doseCounter}剂</span>
+        <input type="date" class="input-field font-mono flex-1" value="${new Date().toISOString().slice(0, 10)}" aria-label="第${_doseCounter}剂计划日期">
+        <input type="text" class="input-field flex-1" placeholder="备注" aria-label="第${_doseCounter}剂备注">
+        ${_doseCounter > 1 ? `<button type="button" onclick="removeDoseRow(this)" class="text-text-muted hover:text-red-400 transition-colors flex-shrink-0 p-1" aria-label="删除第${_doseCounter}剂"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>` : ''}
     `;
     container.appendChild(row);
     lucide.createIcons();
@@ -635,16 +690,15 @@ function showAddHealthModal() {
     document.getElementById('ah-date').value = new Date().toISOString().slice(0, 10);
     document.getElementById('ah-note').value = '';
     const m = document.getElementById('add-health-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
-    document.getElementById('ah-name').focus();
+    openAppModal(m, {
+        focusSelector: '#ah-name',
+        onDismiss: closeAddHealthModal,
+    });
 }
 
 function closeAddHealthModal() {
     const m = document.getElementById('add-health-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function saveCustomHealth() {
@@ -753,7 +807,7 @@ function renderHealthOverview() {
             <span class="text-xs font-mono text-accent">${ov.done_count}/${ov.total}</span>
         </div>
         <div class="w-full h-2 bg-border rounded-full overflow-hidden">
-            <div class="h-full bg-accent rounded-full transition-all duration-500" style="width:${pct}%"></div>
+            <div class="h-full bg-accent rounded-full progress-bar-fill" style="width:${pct}%"></div>
         </div>
         <div class="flex justify-between mt-1">
             <span class="text-[10px] text-red-400">${ov.overdue_count > 0 ? ov.overdue_count + '项逾期' : ''}</span>
@@ -841,15 +895,15 @@ function showHealthPlanModal(label, dueDate) {
     document.getElementById('hpm-date').value = dueDate || getLocalDate();
     document.getElementById('health-plan-modal-title').textContent = label;
     const m = document.getElementById('health-plan-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#hpm-date-trigger, #hpm-date',
+        onDismiss: closeHealthPlanModal,
+    });
 }
 
 function closeHealthPlanModal() {
     const m = document.getElementById('health-plan-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function saveHealthPlanDate() {
@@ -884,15 +938,15 @@ function showHealthRecordModal(label, mode, date, note) {
     document.getElementById('health-record-modal-title').textContent = mode === 'edit' ? '编辑随访记录' : '记录随访';
     document.getElementById('hrm-delete-btn').classList.toggle('hidden', mode !== 'edit');
     const m = document.getElementById('health-record-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#hrm-date-trigger, #hrm-date',
+        onDismiss: closeHealthRecordModal,
+    });
 }
 
 function closeHealthRecordModal() {
     const m = document.getElementById('health-record-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function saveHealthRecord() {
@@ -942,6 +996,7 @@ async function fetchCountdownData() {
 async function loadCountdown() {
     try {
         countdownData = await fetchCountdownData();
+        _countdownDataLoaded = true;
         renderCountdownList();
         _countdownLoaded = true;
     } catch (e) {
@@ -1013,16 +1068,15 @@ function showCountdownModal(item) {
     document.getElementById('countdown-modal-title').textContent = isEdit ? '编辑倒数日' : '添加倒数日';
     document.getElementById('cm-delete-btn').classList.toggle('hidden', !isEdit);
     const m = document.getElementById('countdown-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
-    if (!isEdit) document.getElementById('cm-title').focus();
+    openAppModal(m, {
+        focusSelector: '#cm-title',
+        onDismiss: closeCountdownModal,
+    });
 }
 
 function closeCountdownModal() {
     const m = document.getElementById('countdown-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function saveCountdown() {
@@ -1080,25 +1134,50 @@ function formatDateISO(d) {
 }
 
 async function initCalendar() {
-    const now = new Date();
-    calYear = now.getFullYear();
-    calMonth = now.getMonth();
-    selectedDate = formatDateISO(now);
-    const dp = document.getElementById('schedule-date-picker');
-    if (dp) dp.value = selectedDate;
-    updateDateDisplay(selectedDate);
-    recordDates.clear();
-    vaccineVaccinatedDates.clear();
-    vaccineOverdueDates.clear();
-    vaccineUpcomingDates.clear();
-    healthCompletedDates.clear();
-    healthPlannedDates.clear();
-    countdownDates.clear();
-    await Promise.all([loadRecordDates(), loadVaccineDates(), loadHealthDates(), loadCountdownDates()]);
-    _scheduleLoaded = true;
-    renderCalendar();
-    updateDateDiffLabel(selectedDate);
-    loadRecords(selectedDate);
+    if (_scheduleRequest) return _scheduleRequest;
+    const request = (async () => {
+        const now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+        selectedDate = formatDateISO(now);
+        const dp = document.getElementById('schedule-date-picker');
+        if (dp) dp.value = selectedDate;
+        updateDateDisplay(selectedDate);
+        recordDates.clear();
+        vaccineVaccinatedDates.clear();
+        vaccineOverdueDates.clear();
+        vaccineUpcomingDates.clear();
+        healthCompletedDates.clear();
+        healthPlannedDates.clear();
+        countdownDates.clear();
+        renderCalendar();
+        updateDateDiffLabel(selectedDate);
+        scheduleVaccineSummary();
+        await Promise.all([loadRecordDates(), loadVaccineDates(), loadHealthDates(), loadCountdownDates()]);
+        _scheduleLoaded = true;
+        renderCalendar();
+        updateDateDiffLabel(selectedDate);
+        requestAnimationFrame(() => {
+            if (selectedDate) loadRecords(selectedDate);
+        });
+    })();
+    _scheduleRequest = request;
+    try {
+        return await request;
+    } finally {
+        if (_scheduleRequest === request) _scheduleRequest = null;
+    }
+}
+
+function scheduleVaccineSummary() {
+    if (vaccineData || _vaccineRequest || _vaccineSummaryTimer !== null) {
+        if (vaccineData) updateVaccineAge();
+        return;
+    }
+    _vaccineSummaryTimer = window.setTimeout(() => {
+        _vaccineSummaryTimer = null;
+        loadVaccine({ paint: false });
+    }, 160);
 }
 
 async function loadRecordDates() {
@@ -1130,8 +1209,7 @@ async function loadCountdownDates() {
     try {
         const list = await fetchCountdownData();
         countdownData = list;
-        _countdownLoaded = true;
-        renderCountdownList();
+        _countdownDataLoaded = true;
         countdownDates.clear();
         list.forEach(c => {
             if (!countdownDates.has(c.target_date)) {
@@ -1139,6 +1217,10 @@ async function loadCountdownDates() {
             }
             countdownDates.get(c.target_date).push(c);
         });
+        if (_currentTab === 'countdown') {
+            renderCountdownList();
+            _countdownLoaded = true;
+        }
     } catch (e) { /* ignore */ }
 }
 
@@ -1299,9 +1381,9 @@ function renderRecords(records, vaccineData, healthData, countdownList, dateStr)
         records.forEach(r => {
             const badgeMap = { feed: 'badge-feed', excrete: 'badge-excrete', symptom: 'badge-symptom', supplement: 'badge-supplement' };
             const typeClass = badgeMap[r.type] || 'badge-symptom';
-            const bgMap = { feed: 'bg-blue-500/10', excrete: 'bg-amber-500/10', symptom: 'bg-red-500/10', supplement: 'bg-purple-500/10' };
+            const bgMap = { feed: 'bg-blue-500/10', excrete: 'bg-amber-500/10', symptom: 'bg-red-500/10', supplement: 'bg-emerald-500/10' };
             const iconMap = { feed: 'droplets', excrete: 'circle-dot', symptom: 'heart-pulse', supplement: 'pill' };
-            const colorMap = { feed: 'text-blue-400', excrete: 'text-amber-400', symptom: 'text-red-400', supplement: 'text-purple-400' };
+            const colorMap = { feed: 'text-blue-400', excrete: 'text-amber-400', symptom: 'text-red-400', supplement: 'text-emerald-400' };
 
             let detail = '';
             if (r.amount) {

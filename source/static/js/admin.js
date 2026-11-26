@@ -43,6 +43,7 @@ function initAdmin() {
         loadLogs(),
         loadHaApiKey(),
         loadServiceConfig(),
+        loadMcpConfig(),
         loadMcpApiKey(),
     ]);
     updateSubTypes();
@@ -63,9 +64,15 @@ function initAdmin() {
             if (ownerPwBtn) showResetPasswordModal(parseInt(ownerPwBtn.dataset.adminId), ownerPwBtn.dataset.adminName);
             const renameBtn = e.target.closest('[data-rename-user]');
             if (renameBtn) showRenameUserModal(parseInt(renameBtn.dataset.renameUser), renameBtn.dataset.renameName);
+            const backupBeforeFullBtn = e.target.closest('[data-backup-before-full]');
+            if (backupBeforeFullBtn) backupExport();
         });
         document.addEventListener('input', e => {
             if (e.target.closest('#admin-bind-address')) updateServiceRiskWarning();
+        });
+        document.addEventListener('change', e => {
+            const permissionInput = e.target.closest('[data-mcp-permission]');
+            if (permissionInput) requestMcpPermissionChange(permissionInput.value);
         });
     }
 }
@@ -113,31 +120,33 @@ function renderUsers(users) {
         let actions = '';
         if (u.status === 'pending') {
             actions = `
-                <button class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors" onclick="approveUser(${u.id})">批准</button>
-                <button class="text-xs px-2 py-1 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors" onclick="rejectUser(${u.id})">拒绝</button>`;
+                <button type="button" class="btn-secondary user-action text-xs text-accent" onclick="approveUser(${u.id})">批准</button>
+                <button type="button" class="btn-secondary user-action text-xs text-red-400" onclick="rejectUser(${u.id})">拒绝</button>`;
         } else if (u.status === 'rejected') {
-            actions = `<button class="text-xs px-2 py-1 rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors" onclick="approveUser(${u.id})">重新批准</button>`;
+            actions = `<button type="button" class="btn-secondary user-action text-xs text-accent" onclick="approveUser(${u.id})">重新批准</button>`;
         }
+        actions += `<button type="button" class="btn-secondary user-action text-xs" data-rename-user="${u.id}" data-rename-name="${esc(u.username)}">改名</button>`;
+        actions += `<button type="button" class="btn-secondary user-action text-xs" data-reset-pw="${u.id}" data-reset-name="${esc(u.nickname || u.username)}">改密</button>`;
         if (u.role !== 'admin') {
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-amber-400 hover:border-amber-500/30 transition-colors" data-reset-pw="${u.id}" data-reset-name="${esc(u.nickname || u.username)}">改密</button>`;
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-blue-400 hover:border-blue-500/30 transition-colors" data-rename-user="${u.id}" data-rename-name="${esc(u.username)}">改名</button>`;
-            actions += ` <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-red-400 hover:border-red-500/30 transition-colors" onclick="deleteUser(${u.id})">删除</button>`;
+            actions += `<button type="button" class="btn-secondary user-action text-xs hover:text-red-400 hover:border-red-500/30" onclick="deleteUser(${u.id})">删除</button>`;
         }
 
         return `
-        <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-base border border-border">
-            <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-bold flex-shrink-0">
-                ${esc((u.nickname || u.username || '?')[0])}
-            </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                    <span class="text-sm text-text-primary">${esc(u.nickname || u.username)}</span>
-                    ${u.role === 'admin' ? '<span class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/30">管理员</span>' : ''}
-                    <span class="text-xs px-1.5 py-0.5 rounded border ${sc}">${sl}</span>
+        <div class="user-row rounded-lg bg-base border border-border">
+            <div class="user-summary">
+                <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-bold flex-shrink-0">
+                    ${esc((u.nickname || u.username || '?')[0])}
                 </div>
-                <p class="text-xs text-text-muted">${esc(u.username)} · ${esc(u.created_at || '')}</p>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-sm text-text-primary truncate" title="${esc(u.nickname || u.username)}">${esc(u.nickname || u.username)}</span>
+                        ${u.role === 'admin' ? '<span class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/30 flex-shrink-0">管理员</span>' : ''}
+                        <span class="text-xs px-1.5 py-0.5 rounded border flex-shrink-0 ${sc}">${sl}</span>
+                    </div>
+                    <p class="text-xs text-text-muted truncate">${esc(u.username)} · ${esc(u.created_at || '')}</p>
+                </div>
             </div>
-            <div class="flex items-center gap-1 flex-shrink-0">${actions}</div>
+            <div class="user-actions">${actions}</div>
         </div>`;
     }).join('');
 }
@@ -166,50 +175,95 @@ async function deleteUser(id) {
 let _cachedButtons = [];
 
 async function loadButtons() {
+    const container = document.getElementById('buttons-list');
+    const count = document.getElementById('quick-buttons-count');
+    if (!container) return;
+    container.setAttribute('aria-busy', 'true');
+    if (count) count.textContent = '正在同步';
     try {
         const buttons = await api('/api/quick-buttons');
+        if (!Array.isArray(buttons)) throw new Error('按钮数据格式无效');
         _cachedButtons = buttons;
         renderButtons(buttons);
-    } catch (e) { /* ignore */ }
+    } catch (error) {
+        renderButtonsError(error);
+    }
+}
+
+function renderButtonsError(error) {
+    const container = document.getElementById('buttons-list');
+    const count = document.getElementById('quick-buttons-count');
+    if (!container) return;
+    container.setAttribute('aria-busy', 'false');
+    if (count) count.textContent = '加载失败';
+    const detail = error instanceof Error && error.message ? error.message : '请稍后重试';
+    container.innerHTML = `
+        <div class="quick-buttons-state" role="alert">
+            <span class="quick-buttons-state-icon" aria-hidden="true"><i data-lucide="circle-alert"></i></span>
+            <div class="quick-buttons-state-copy">
+                <p>无法加载快速记录按钮</p>
+                <span>${esc(detail)}</span>
+            </div>
+            <button type="button" class="btn-secondary quick-buttons-retry">重新加载</button>
+        </div>`;
+    container.querySelector('.quick-buttons-retry')?.addEventListener('click', loadButtons, { once: true });
+    lucide.createIcons();
 }
 
 function renderButtons(buttons) {
     const container = document.getElementById('buttons-list');
+    const count = document.getElementById('quick-buttons-count');
+    if (!container) return;
+    container.setAttribute('aria-busy', 'false');
+    if (count) count.textContent = `${buttons.length} 个按钮`;
+
     if (buttons.length === 0) {
-        container.innerHTML = '<p class="text-text-muted text-sm text-center py-4">暂无按钮，点击上方添加</p>';
+        container.innerHTML = `
+            <div class="quick-buttons-empty">
+                <span class="quick-buttons-empty-icon" aria-hidden="true"><i data-lucide="plus-circle"></i></span>
+                <p>暂无快速记录按钮</p>
+            </div>`;
+        lucide.createIcons();
         return;
     }
 
     const typeLabels = { feed: '喂养', excrete: '排泄', symptom: '症状', supplement: '补充' };
-    const typeColors = { feed: 'text-blue-400', excrete: 'text-amber-400', symptom: 'text-red-400', supplement: 'text-purple-400' };
+    const typeIcons = { feed: 'droplets', excrete: 'circle-dot', symptom: 'heart-pulse', supplement: 'pill' };
 
     container.innerHTML = buttons.map((b, i) => `
-        <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-base border border-border ${b.is_active ? '' : 'opacity-40'}">
-            <div class="flex flex-col gap-0.5">
-                <button class="text-text-muted hover:text-accent transition-colors ${i === 0 ? 'invisible' : ''}" onclick="moveButton(${b.id}, -1)" title="上移">
-                    <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
+        <article class="quick-button-row ${b.is_active ? '' : 'is-disabled'}">
+            <div class="quick-button-order" role="group" aria-label="${esc(b.label)}排序">
+                <button type="button" class="quick-button-order-button" onclick="moveButton(${b.id}, -1)" title="上移" aria-label="上移${esc(b.label)}" ${i === 0 ? 'disabled' : ''}>
+                    <i data-lucide="chevron-up" aria-hidden="true"></i>
                 </button>
-                <button class="text-text-muted hover:text-accent transition-colors ${i === buttons.length - 1 ? 'invisible' : ''}" onclick="moveButton(${b.id}, 1)" title="下移">
-                    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                <button type="button" class="quick-button-order-button" onclick="moveButton(${b.id}, 1)" title="下移" aria-label="下移${esc(b.label)}" ${i === buttons.length - 1 ? 'disabled' : ''}>
+                    <i data-lucide="chevron-down" aria-hidden="true"></i>
                 </button>
             </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                    <span class="text-sm text-text-primary">${esc(b.label)}</span>
-                    <span class="text-xs ${typeColors[b.type]}">${typeLabels[b.type]}</span>
-                    ${b.amount ? `<span class="text-xs text-text-muted font-mono">${b.amount}${b.sub_type === 'solid_food' && b.food_unit ? esc(b.food_unit) : 'ml'}</span>` : ''}
+            <div class="quick-button-main">
+                <h3 class="quick-button-label" title="${esc(b.label)}">${esc(b.label)}</h3>
+                <div class="quick-button-meta">
+                    <span class="quick-button-state ${b.is_active ? 'is-active' : 'is-inactive'}">${b.is_active ? '启用' : '禁用'}</span>
+                    <span class="quick-button-type" data-type="${esc(b.type)}">
+                        <i data-lucide="${typeIcons[b.type] || 'circle-dot'}" aria-hidden="true"></i>
+                        ${typeLabels[b.type] || '记录'}
+                    </span>
+                    <span class="quick-button-order-label">排序 ${b.sort_order}</span>
+                    ${b.amount ? `<span class="quick-button-amount">${esc(b.amount)}${b.sub_type === 'solid_food' ? esc(b.food_unit || 'g') : 'ml'}</span>` : ''}
                 </div>
-                <p class="text-xs text-text-muted">排序: ${b.sort_order} · ${b.is_active ? '启用' : '禁用'}</p>
             </div>
-            <div class="flex items-center gap-1 flex-shrink-0">
-                <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-amber-400 hover:border-amber-500/30 transition-colors"
-                        onclick="showEditButtonModal(${b.id})">编辑</button>
-                <button class="text-xs px-2 py-1 rounded border border-border text-text-muted hover:text-accent transition-colors"
-                        onclick="toggleButton(${b.id}, ${b.is_active ? 0 : 1})">${b.is_active ? '禁用' : '启用'}</button>
-                <button class="text-xs px-2 py-1 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
-                        onclick="deleteButton(${b.id})">删除</button>
+            <div class="quick-button-actions" role="group" aria-label="${esc(b.label)}操作">
+                <button type="button" class="btn-secondary quick-button-action" onclick="showEditButtonModal(${b.id})" title="编辑" aria-label="编辑${esc(b.label)}">
+                    <i data-lucide="pencil" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="btn-secondary quick-button-action" onclick="toggleButton(${b.id}, ${b.is_active ? 0 : 1})" title="${b.is_active ? '禁用' : '启用'}" aria-label="${b.is_active ? '禁用' : '启用'}${esc(b.label)}">
+                    <i data-lucide="${b.is_active ? 'eye-off' : 'eye'}" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="btn-danger quick-button-action is-danger" onclick="deleteButton(${b.id})" title="删除" aria-label="删除${esc(b.label)}">
+                    <i data-lucide="trash-2" aria-hidden="true"></i>
+                </button>
             </div>
-        </div>
+        </article>
     `).join('');
     lucide.createIcons();
 }
@@ -251,9 +305,6 @@ let _editingButtonId = null;
 function showAddButtonModal() {
     _editingButtonId = null;
     const m = document.getElementById('add-btn-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
     document.getElementById('btn-modal-title').textContent = '添加快速记录按钮';
     document.getElementById('btn-modal-submit').textContent = '添加';
     document.getElementById('new-btn-type').value = 'feed';
@@ -267,6 +318,10 @@ function showAddButtonModal() {
     if (unitSel) unitSel.value = 'g';
     if (unitCustom) { unitCustom.value = ''; unitCustom.classList.add('hidden'); }
     updateSubTypes();
+    openAppModal(m, {
+        focusSelector: '#new-btn-type-trigger, #new-btn-type',
+        onDismiss: closeAddButtonModal,
+    });
 }
 
 function showEditButtonModal(id) {
@@ -274,9 +329,6 @@ function showEditButtonModal(id) {
     if (!btn) return;
     _editingButtonId = id;
     const m = document.getElementById('add-btn-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
     document.getElementById('btn-modal-title').textContent = '编辑快速记录按钮';
     document.getElementById('btn-modal-submit').textContent = '保存';
     document.getElementById('new-btn-type').value = btn.type;
@@ -300,13 +352,16 @@ function showEditButtonModal(id) {
     // 加载辅食单位
     _loadFoodUnitUI(btn.food_unit || '');
     _updateBtnAmountLabel();
+    openAppModal(m, {
+        focusSelector: '#new-btn-type-trigger, #new-btn-type',
+        onDismiss: closeAddButtonModal,
+    });
 }
 
 function closeAddButtonModal() {
     _editingButtonId = null;
     const m = document.getElementById('add-btn-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 function updateSubTypes() {
@@ -510,7 +565,6 @@ async function loadStats() {
         document.getElementById('stat-feeds').textContent = stats.total_feeds;
         document.getElementById('stat-ml').textContent = stats.total_ml;
         document.getElementById('stat-days').textContent = stats.tracked_days;
-        document.getElementById('stat-pending').textContent = stats.pending_users;
     } catch (e) { /* ignore */ }
 }
 
@@ -548,10 +602,11 @@ function renderLogs(logs) {
         '重置密码': 'text-amber-400',
         '清除数据': 'text-red-400',
         '导出CSV': 'text-text-secondary',
-        'HA快速记录': 'text-purple-400',
-        '生成HA密钥': 'text-purple-400',
+        'HA快速记录': 'text-emerald-400',
+        '生成HA密钥': 'text-emerald-400',
         '备份数据': 'text-blue-400',
         '恢复数据': 'text-amber-400',
+        '修改MCP权限': 'text-amber-400',
     };
 
     container.innerHTML = logs.map(l => {
@@ -576,16 +631,16 @@ function backupExport() {
 
 function showRestoreModal() {
     const m = document.getElementById('restore-modal');
-    m.classList.remove('hidden');
-    m.classList.add('flex');
     document.getElementById('restore-file').value = '';
-    if (typeof fabClose === 'function') fabClose();
+    openAppModal(m, {
+        focusSelector: '#restore-file-trigger, #restore-file',
+        onDismiss: closeRestoreModal,
+    });
 }
 
 function closeRestoreModal() {
     const m = document.getElementById('restore-modal');
-    m.classList.add('hidden');
-    m.classList.remove('flex');
+    closeAppModal(m);
 }
 
 async function backupRestore() {
@@ -643,39 +698,47 @@ function showResetPasswordModal(userId, userName) {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'reset-pw-modal';
-        modal.className = 'fixed inset-0 z-[90] hidden items-center justify-center bg-black/60';
+        modal.className = 'app-modal hidden items-center justify-center';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'reset-pw-modal-title');
         document.body.appendChild(modal);
     }
     modal.innerHTML = `
-    <div class="bg-surface border border-border rounded-xl p-6 w-80 max-w-[90vw]">
-        <h3 class="text-sm font-medium text-text-secondary mb-3">修改管理密码 - ${esc(userName)}</h3>
-        <input type="password" id="reset-pw-input" class="input-field font-mono" placeholder="输入新密码（8-128位）" autocomplete="new-password">
-        <input type="password" id="reset-pw-confirm" class="input-field font-mono mt-2" placeholder="再次输入新密码" autocomplete="new-password">
-        <div class="flex gap-2 mt-4">
-            <button class="btn-secondary flex-1 text-sm" onclick="closeResetPasswordModal()">取消</button>
-            <button class="btn-primary flex-1 text-sm" onclick="resetPassword()">确认</button>
+    <div class="app-modal-panel">
+        <h3 id="reset-pw-modal-title" class="app-modal-title mb-4">修改密码 - ${esc(userName)}</h3>
+        <div class="space-y-3">
+            <div>
+                <label class="field-label" for="reset-pw-input">新密码</label>
+                <input type="password" id="reset-pw-input" class="input-field font-mono" placeholder="输入新密码（6-128位）" autocomplete="new-password" minlength="6" maxlength="128">
+            </div>
+            <div>
+                <label class="field-label" for="reset-pw-confirm">确认密码</label>
+                <input type="password" id="reset-pw-confirm" class="input-field font-mono" placeholder="再次输入新密码" autocomplete="new-password" minlength="6" maxlength="128">
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary text-sm" onclick="closeResetPasswordModal()">取消</button>
+            <button type="button" class="btn-primary text-sm" onclick="resetPassword()">确认</button>
         </div>
     </div>`;
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
-    document.getElementById('reset-pw-input').focus();
+    openAppModal(modal, {
+        focusSelector: '#reset-pw-input',
+        onDismiss: closeResetPasswordModal,
+    });
 }
 
 function closeResetPasswordModal() {
     const modal = document.getElementById('reset-pw-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
+    closeAppModal(modal);
     _resetUserId = null;
 }
 
 async function resetPassword() {
     const pw = document.getElementById('reset-pw-input').value;
     const confirmation = document.getElementById('reset-pw-confirm').value;
-    if (pw.length < 8 || pw.length > 128) {
-        showToast('密码长度应为 8-128 位');
+    if (pw.length < 6 || pw.length > 128) {
+        showToast('密码长度应为 6-128 位');
         return;
     }
     if (pw !== confirmation) {
@@ -703,33 +766,35 @@ function showRenameUserModal(userId, currentName) {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'rename-user-modal';
-        modal.className = 'fixed inset-0 z-[90] hidden items-center justify-center bg-black/60';
+        modal.className = 'app-modal hidden items-center justify-center';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'rename-user-modal-title');
         document.body.appendChild(modal);
     }
     modal.innerHTML = `
-    <div class="bg-surface border border-border rounded-xl p-6 w-80 max-w-[90vw]">
-        <h3 class="text-sm font-medium text-text-secondary mb-3">修改登录名</h3>
-        <input type="text" id="rename-user-input" class="input-field font-mono" placeholder="输入新登录名（至少2位）" value="${esc(currentName)}">
-        <p class="text-[10px] text-text-muted mt-1">当前: ${esc(currentName)}</p>
-        <div class="flex gap-2 mt-4">
-            <button class="btn-secondary flex-1 text-sm" onclick="closeRenameUserModal()">取消</button>
-            <button class="btn-primary flex-1 text-sm" onclick="renameUser()">确认</button>
+    <div class="app-modal-panel">
+        <h3 id="rename-user-modal-title" class="app-modal-title mb-4">修改登录名</h3>
+        <div>
+            <label class="field-label" for="rename-user-input">新登录名</label>
+            <input type="text" id="rename-user-input" class="input-field font-mono" placeholder="输入新登录名（至少2位）" value="${esc(currentName)}">
+            <p class="page-meta text-text-muted mt-1">当前：${esc(currentName)}</p>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-secondary text-sm" onclick="closeRenameUserModal()">取消</button>
+            <button type="button" class="btn-primary text-sm" onclick="renameUser()">确认</button>
         </div>
     </div>`;
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    if (typeof fabClose === 'function') fabClose();
-    const input = document.getElementById('rename-user-input');
-    input.focus();
-    input.select();
+    openAppModal(modal, {
+        focusSelector: '#rename-user-input',
+        onDismiss: closeRenameUserModal,
+    });
+    requestAnimationFrame(() => document.getElementById('rename-user-input')?.select());
 }
 
 function closeRenameUserModal() {
     const modal = document.getElementById('rename-user-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
+    closeAppModal(modal);
     _renameUserId = null;
 }
 
@@ -739,11 +804,18 @@ async function renameUser() {
         showToast('用户名至少2个字符');
         return;
     }
+    const renamedUserId = _renameUserId;
     try {
-        await api(`/api/users/${_renameUserId}/username`, {
+        const result = await api(`/api/users/${renamedUserId}/username`, {
             method: 'PUT',
             body: JSON.stringify({ username: newName })
         });
+        const currentAdminButton = document.querySelector('[data-change-admin-pw]');
+        if (currentAdminButton && Number(currentAdminButton.dataset.adminId) === renamedUserId) {
+            const currentAdminName = document.getElementById('admin-account-name');
+            if (currentAdminName) currentAdminName.textContent = result.username || newName;
+            currentAdminButton.dataset.adminName = result.username || newName;
+        }
         showToast('用户名已更新');
         closeRenameUserModal();
         loadUsers();
@@ -781,7 +853,7 @@ function renderHaButtonChecks() {
         return;
     }
     const typeLabels = { feed: '喂养', excrete: '排泄', symptom: '症状', supplement: '补充' };
-    const typeColors = { feed: 'text-blue-400', excrete: 'text-amber-400', symptom: 'text-red-400', supplement: 'text-purple-400' };
+    const typeColors = { feed: 'text-blue-400', excrete: 'text-amber-400', symptom: 'text-red-400', supplement: 'text-emerald-400' };
     container.innerHTML = _haButtons.map(b => `
         <label class="flex items-center gap-2 py-1 cursor-pointer">
             <input type="checkbox" class="ha-entity accent-accent" data-type="switch" data-id="${b.id}" data-label="${esc(b.label)}" checked>
@@ -848,6 +920,101 @@ function mcpEndpointFor(bindAddress, port) {
     return `http://${host}:${portValue}/mcp`;
 }
 
+let _currentMcpPermission = 'basic';
+let _mcpPermissionBusy = false;
+
+const MCP_PERMISSION_COPY = {
+    basic: '只读最近 30 天的记录、成长数据和宝宝资料',
+    advanced: '可读取最近 30 天数据，并新增日常、成长、疫苗和健康随访记录',
+    full: '可访问全部历史数据，并修改宝宝资料、业务配置和管理数据',
+};
+
+const MCP_PERMISSION_LABELS = {
+    basic: '基础',
+    advanced: '进阶',
+    full: '完全',
+};
+
+function updateMcpPermissionUI(config) {
+    const requested = config?.permission_level;
+    if (Object.prototype.hasOwnProperty.call(MCP_PERMISSION_LABELS, requested)) {
+        _currentMcpPermission = requested;
+    }
+    document.querySelectorAll('[data-mcp-permission]').forEach(input => {
+        input.checked = input.value === _currentMcpPermission;
+        input.disabled = _mcpPermissionBusy;
+    });
+    const summary = document.getElementById('mcp-permission-summary');
+    if (summary) summary.textContent = MCP_PERMISSION_COPY[_currentMcpPermission] || MCP_PERMISSION_COPY.basic;
+    const pill = document.getElementById('mcp-permission-level-pill');
+    if (pill) {
+        pill.textContent = MCP_PERMISSION_LABELS[_currentMcpPermission] || MCP_PERMISSION_LABELS.basic;
+        pill.classList.toggle('is-warning', _currentMcpPermission === 'full');
+    }
+    const warning = document.getElementById('mcp-full-permission-warning');
+    if (warning) warning.hidden = _currentMcpPermission !== 'full';
+}
+
+function setMcpPermissionBusy(busy) {
+    _mcpPermissionBusy = busy;
+    document.querySelectorAll('[data-mcp-permission]').forEach(input => {
+        input.disabled = busy;
+    });
+}
+
+async function requestMcpPermissionChange(level) {
+    if (_mcpPermissionBusy || !Object.prototype.hasOwnProperty.call(MCP_PERMISSION_LABELS, level)) return;
+    if (level === _currentMcpPermission) return;
+    if (level === 'full' && _currentMcpPermission !== 'full') {
+        updateMcpPermissionUI({ permission_level: _currentMcpPermission });
+        const modal = document.getElementById('mcp-full-access-modal');
+        openAppModal(modal, {
+            focusSelector: '#mcp-full-access-modal .btn-secondary',
+            onDismiss: closeMcpFullAccessModal,
+        });
+        return;
+    }
+    await saveMcpPermission(level, false);
+}
+
+async function saveMcpPermission(level, acknowledgeFullAccess) {
+    if (_mcpPermissionBusy) return;
+    setMcpPermissionBusy(true);
+    try {
+        const result = await api('/api/mcp/config', {
+            method: 'PUT',
+            body: JSON.stringify({
+                permission_level: level,
+                acknowledge_full_access: acknowledgeFullAccess,
+            }),
+        });
+        updateMcpServiceStatus(result);
+        showToast(result.message || `MCP 权限已设为${MCP_PERMISSION_LABELS[level]}`);
+    } catch (e) {
+        updateMcpPermissionUI({ permission_level: _currentMcpPermission });
+        showToast(e.message);
+    } finally {
+        setMcpPermissionBusy(false);
+    }
+}
+
+function closeMcpFullAccessModal() {
+    const modal = document.getElementById('mcp-full-access-modal');
+    closeAppModal(modal);
+    updateMcpPermissionUI({ permission_level: _currentMcpPermission });
+}
+
+async function backupAndEnableMcpFull() {
+    backupExport();
+    closeMcpFullAccessModal();
+    await saveMcpPermission('full', true);
+}
+
+async function confirmMcpFullAccess() {
+    closeMcpFullAccessModal();
+    await saveMcpPermission('full', true);
+}
+
 function updateMcpServiceStatus(config) {
     const bindAddress = String(config?.bind_address || '').trim();
     const port = String(config?.port || '').trim();
@@ -856,6 +1023,7 @@ function updateMcpServiceStatus(config) {
         ?? config?.listener_available
         ?? Boolean(bindAddress && port);
     const available = config?.mcp_available ?? config?.available ?? (enabled && listenerAvailable);
+    const permissionLabel = config?.permission_label || MCP_PERMISSION_LABELS[config?.permission_level] || '基础';
     const state = document.getElementById('mcp-service-state');
     const status = document.getElementById('mcp-service-status');
     const endpoint = document.getElementById('mcp-endpoint');
@@ -870,7 +1038,7 @@ function updateMcpServiceStatus(config) {
     }
     if (status) {
         status.textContent = available
-            ? '仅直连额外监听端口可用，统一网关不提供 MCP'
+            ? `仅通过直连监听提供，当前为${permissionLabel}权限`
             : enabled
                 ? 'MCP 已打开，请先配置有效的监听地址和端口'
                 : '默认关闭，打开后展开连接配置';
@@ -890,6 +1058,7 @@ function updateMcpServiceStatus(config) {
         toggle.dataset.ready = 'true';
         toggle.disabled = toggle.dataset.busy === 'true';
     }
+    updateMcpPermissionUI(config);
     setMcpSettingsExpanded(enabled);
 }
 
@@ -919,18 +1088,21 @@ async function toggleMcpService() {
             method: 'PUT',
             body: JSON.stringify({ enabled }),
         });
-        updateMcpServiceStatus({
-            bind_address: result.bind_address,
-            port: result.port,
-            mcp_enabled: result.enabled,
-            mcp_listener_available: result.listener_available,
-            mcp_available: result.available,
-        });
+        updateMcpServiceStatus(result);
         showToast(result.message || (enabled ? 'MCP 服务已开启' : 'MCP 服务已关闭'));
     } catch (e) {
         showToast(e.message);
     } finally {
         setMcpSwitchBusy(false);
+    }
+}
+
+async function loadMcpConfig() {
+    try {
+        const config = await api('/api/mcp/config');
+        updateMcpServiceStatus(config);
+    } catch (e) {
+        console.warn('加载 MCP 配置失败', e);
     }
 }
 
@@ -968,7 +1140,7 @@ async function saveServiceConfig() {
         showToast('监听地址和端口需同时填写，留空则关闭监听');
         return;
     }
-    if (bindAddress && (!port || !Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535)) {
+    if (bindAddress && (!Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535)) {
         showToast('监听端口范围应为 1024-65535');
         return;
     }
@@ -976,9 +1148,7 @@ async function saveServiceConfig() {
     const restartHint = bindAddress
         ? '保存后应用会自动重启，统一网关和监听端口会短暂中断。'
         : '关闭后应用会自动重启，仅保留飞牛统一网关访问。';
-    const confirmMessage = riskWarning ? `${riskWarning}
-
-${restartHint}` : restartHint;
+    const confirmMessage = riskWarning ? `${riskWarning}\n\n${restartHint}` : restartHint;
     if (!await showConfirm(confirmMessage, { confirmText: bindAddress ? '保存并重启' : '关闭并重启' })) return;
 
     const button = document.querySelector('[data-save-service-config]');

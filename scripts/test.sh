@@ -49,24 +49,26 @@ if [ -n "${unformatted}" ]; then
     exit 1
 fi
 
-log "Running go vet and Go tests"
+log "Running go vet, Go tests, and race tests"
 (
     cd "${ROOT_DIR}"
     go vet ./...
     go test ./...
+    go test -race ./...
 )
 
 log "Checking JavaScript syntax"
 if command -v node >/dev/null 2>&1; then
-    node --check "${SOURCE_DIR}/static/js/app.js"
-    node --check "${SOURCE_DIR}/static/js/admin.js"
-    node --check "${SOURCE_DIR}/static/js/motion.js"
-    node --check "${SOURCE_DIR}/static/js/spa.js"
-    node --check "${SOURCE_DIR}/static/sw.js"
+    while IFS= read -r -d '' file; do
+        node --check "${file}"
+    done < <(find "${SOURCE_DIR}/static" -type f -name '*.js' ! -path '*/vendor/*' -print0)
     node - "${SOURCE_DIR}/static/js/app.js" <<'JS'
 const assert = require('assert');
 const fs = require('fs');
-global.document = { documentElement: { dataset: { appBase: '/app/baby-tracker' } } };
+global.document = {
+    documentElement: { dataset: { appBase: '/app/baby-tracker' } },
+    addEventListener() {},
+};
 eval(fs.readFileSync(process.argv[2], 'utf8'));
 assert.equal(appUrl('/api/export/csv'), '/app/baby-tracker/api/export/csv');
 assert.equal(appUrl('/app/baby-tracker/trends'), '/app/baby-tracker/trends');

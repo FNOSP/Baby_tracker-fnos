@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/pbkdf2"
@@ -22,8 +23,12 @@ import (
 )
 
 const (
-	sessionCookieName = "baby_tracker_session"
-	sessionLifetime   = 30 * 24 * time.Hour
+	sessionCookieName      = "baby_tracker_session"
+	sessionLifetime        = 30 * 24 * time.Hour
+	minPasswordLength      = 6
+	maxPasswordLength      = 128
+	passwordLengthError    = "密码长度应为 6-128 位"
+	adminPasswordLengthErr = "管理密码长度应为 6-128 位"
 )
 
 type sessionState struct {
@@ -104,6 +109,11 @@ func (a *App) sign(payload []byte) []byte {
 	mac := hmac.New(sha256.New, []byte(a.cfg.SessionSecret))
 	_, _ = mac.Write(payload)
 	return mac.Sum(nil)
+}
+
+func isPasswordLengthValid(password string) bool {
+	length := utf8.RuneCountInString(password)
+	return length >= minPasswordLength && length <= maxPasswordLength
 }
 
 func hashPassword(password string) string {

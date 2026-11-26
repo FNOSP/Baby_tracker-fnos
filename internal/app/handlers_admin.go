@@ -123,8 +123,8 @@ func (a *App) updateSettings(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(key) == "" {
 			continue
 		}
-		if key == mcpEnabledSetting {
-			writeError(w, http.StatusBadRequest, "MCP 开关需使用专用接口")
+		if key == mcpEnabledSetting || key == mcpPermissionSetting {
+			writeError(w, http.StatusBadRequest, "MCP 配置需使用专用接口")
 			return
 		}
 		if isSensitiveSettingKey(key) {
@@ -262,8 +262,8 @@ func (a *App) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	password := strings.TrimSpace(input.Password)
-	if len([]rune(password)) < 8 || len([]rune(password)) > 128 {
-		writeError(w, http.StatusBadRequest, "密码长度应为 8-128 位")
+	if !isPasswordLengthValid(password) {
+		writeError(w, http.StatusBadRequest, passwordLengthError)
 		return
 	}
 	id := pathID(r)

@@ -74,10 +74,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS weight_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     baby_id INTEGER NOT NULL DEFAULT 1,
-    weight REAL NOT NULL,
+    weight REAL,
+    height REAL,
     recorded_date TEXT NOT NULL,
     note TEXT DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    CHECK (weight IS NOT NULL OR height IS NOT NULL)
 );
 CREATE TABLE IF NOT EXISTS vaccine_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,7 +164,7 @@ func ensureParentDir(path string) error {
 	return mkdirAll(dir)
 }
 
-func (a *App) initDatabase(ctx context.Context) error {
+func (a *App) initDatabase(ctx context.Context, newDatabase bool) error {
 	if _, err := a.db.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
@@ -174,10 +176,14 @@ func (a *App) initDatabase(ctx context.Context) error {
 		{"babies", "is_premature", "INTEGER DEFAULT 0"},
 		{"records", "food_unit", "TEXT DEFAULT ''"},
 		{"quick_buttons", "food_unit", "TEXT DEFAULT ''"},
+		{"weight_logs", "height", "REAL"},
 	} {
 		if err := ensureColumn(ctx, a.db, migration.table, migration.column, migration.def); err != nil {
 			return err
 		}
+	}
+	if err := ensureGrowthLogSchema(ctx, a.db); err != nil {
+		return err
 	}
 	if err := a.rewriteLegacyCheckTables(ctx); err != nil {
 		return err
@@ -187,6 +193,7 @@ func (a *App) initDatabase(ctx context.Context) error {
 		"custom_daily_target":   "",
 		"feeds_per_day":         "8",
 		"mcp_enabled":           "0",
+		"mcp_permission_level":  "basic",
 		"reminder_interval_min": "180",
 	}
 	for key, value := range defaultSettings {
@@ -247,18 +254,30 @@ func (a *App) initDatabase(ctx context.Context) error {
 		}
 	}
 
-	if a.cfg.CreateDefaultAdmin {
-		var adminCount int
-		if err := a.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'admin'").Scan(&adminCount); err != nil {
-			return fmt.Errorf("count admins: %w", err)
-		}
-		if adminCount == 0 {
+	var adminCount int
+	if err := a.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'admin'").Scan(&adminCount); err != nil {
+		return fmt.Errorf("count admins: %w", err)
+	}
+	if adminCount == 0 {
+		if a.cfg.CreateDefaultAdmin && newDatabase {
 			_, err := a.db.ExecContext(ctx,
 				"INSERT INTO users (username, password_hash, nickname, role, status) VALUES ('admin', ?, '管理员', 'admin', 'approved')",
 				hashPassword("admin123"),
 			)
 			if err != nil {
 				return fmt.Errorf("insert default admin: %w", err)
+			}
+		}
+	} else if !newDatabase {
+		var passwordHash string
+		err := a.db.QueryRowContext(ctx,
+			"SELECT password_hash FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").Scan(&passwordHash)
+		if err != nil {
+			return fmt.Errorf("inspect existing admin: %w", err)
+		}
+		if !checkPassword(passwordHash, "admin123") {
+			if err := a.markAdminPasswordInitialized(ctx); err != nil {
+				return fmt.Errorf("mark migrated admin password initialized: %w", err)
 			}
 		}
 	}
@@ -288,6 +307,80 @@ func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition str
 	}
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)); err != nil {
 		return fmt.Errorf("add %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+func ensureGrowthLogSchema(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(weight_logs)")
+	if err != nil {
+		return fmt.Errorf("inspect weight_logs columns: %w", err)
+	}
+	weightNullable := true
+	hasHeight := false
+	for rows.Next() {
+		var (
+			cid          int
+			name, typ    string
+			notNull, pk  int
+			defaultValue any
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan weight_logs columns: %w", err)
+		}
+		switch name {
+		case "weight":
+			weightNullable = notNull == 0
+		case "height":
+			hasHeight = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close weight_logs columns: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate weight_logs columns: %w", err)
+	}
+	if weightNullable && hasHeight {
+		return nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin growth log migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE weight_logs RENAME TO _weight_logs_legacy"); err != nil {
+		return fmt.Errorf("rename legacy weight logs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE weight_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		baby_id INTEGER NOT NULL DEFAULT 1,
+		weight REAL,
+		height REAL,
+		recorded_date TEXT NOT NULL,
+		note TEXT DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+		CHECK (weight IS NOT NULL OR height IS NOT NULL)
+	)`); err != nil {
+		return fmt.Errorf("create growth log table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO weight_logs
+		(id, baby_id, weight, height, recorded_date, note, created_at)
+		SELECT id, baby_id, weight, height, recorded_date, note, created_at
+		FROM _weight_logs_legacy`); err != nil {
+		return fmt.Errorf("copy legacy weight logs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE _weight_logs_legacy"); err != nil {
+		return fmt.Errorf("drop legacy weight logs: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit growth log migration: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		"CREATE INDEX IF NOT EXISTS idx_weight_logs_recorded_date ON weight_logs(recorded_date, id)"); err != nil {
+		return fmt.Errorf("index growth logs: %w", err)
 	}
 	return nil
 }

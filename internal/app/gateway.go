@@ -13,11 +13,14 @@ import (
 	"github.com/flosch/pongo2/v6"
 )
 
+// Bump when browser-loaded styles or scripts change so open clients fetch matching assets.
+const assetVersion = "2026-11-26.3"
+
 type gatewayConnKey struct{}
 
 func (a *App) gatewayMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		prefix := a.cfg.GatewayPrefix
+		prefix := normalizeGatewayPrefix(a.cfg.GatewayPrefix)
 		originalPath := path.Clean("/" + r.URL.Path)
 		trustGateway := false
 		if value, _ := r.Context().Value(gatewayConnKey{}).(bool); value {
@@ -78,6 +81,7 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, page string, va
 	values["current_user"] = state.User
 	values["initial"] = userInitial(state.User)
 	values["gateway_login_available"] = state.GatewayIdentity != nil
+	values["asset_version"] = assetVersion
 	if _, ok := values["active_page"]; !ok {
 		values["active_page"] = ""
 	}
@@ -93,6 +97,7 @@ func (a *App) renderPage(w http.ResponseWriter, r *http.Request, page string, va
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, body)
 }
@@ -170,6 +175,8 @@ func (a *App) staticHandler() http.Handler {
 				scope = state.BasePath + "/"
 			}
 			w.Header().Set("Service-Worker-Allowed", scope)
+			w.Header().Set("Cache-Control", "no-cache")
+		} else if strings.HasSuffix(cleanPath, ".css") || strings.HasSuffix(cleanPath, ".js") {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 		http.ServeFile(w, r, filepath.Join(staticDir, filepath.FromSlash(cleanPath)))

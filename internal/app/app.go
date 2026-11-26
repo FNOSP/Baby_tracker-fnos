@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,10 +31,24 @@ type App struct {
 
 // New creates an application, opens the SQLite database, and applies migrations.
 func New(ctx context.Context, cfg Config) (*App, error) {
+	cfg.GatewayPrefix = normalizeGatewayPrefix(cfg.GatewayPrefix)
+	dataDir, err := resolveDataDir(cfg.DataDir, cfg.LegacyDataDirs)
+	if err != nil {
+		return nil, err
+	}
+	cfg.DataDir = dataDir
 	if cfg.SessionSecret == "" {
-		cfg.SessionSecret = randomToken(48)
+		secret, err := loadOrCreateSessionSecret(cfg.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		cfg.SessionSecret = secret
 	}
 	dbPath := filepath.Join(cfg.DataDir, "baby.db")
+	newDatabase, err := databaseIsNew(dbPath)
+	if err != nil {
+		return nil, err
+	}
 	db, err := openDatabase(dbPath)
 	if err != nil {
 		return nil, err
@@ -52,13 +67,28 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		haStates:  make(map[int64]string),
 		haTimers:  make(map[int64]*time.Timer),
 	}
-	if err := application.initDatabase(ctx); err != nil {
+	if err := application.initDatabase(ctx, newDatabase); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	application.mcp = application.newMCPHandler()
 	application.registerRoutes()
 	return application, nil
+}
+
+func databaseIsNew(path string) (bool, error) {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("database path %s is not a regular file", path)
+		}
+		return info.Size() == 0, nil
+	case os.IsNotExist(err):
+		return true, nil
+	default:
+		return false, fmt.Errorf("inspect database %s: %w", path, err)
+	}
 }
 
 // Close releases the database and cancels pending Home Assistant timers.
@@ -90,4 +120,30 @@ func (a *App) ConnContext(ctx context.Context, conn net.Conn) context.Context {
 // DB exposes the underlying database for command-line maintenance.
 func (a *App) DB() *sql.DB {
 	return a.db
+}
+
+func loadOrCreateSessionSecret(dataDir string) (string, error) {
+	if err := mkdirAll(dataDir); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dataDir, "secret_key")
+	if raw, err := os.ReadFile(path); err == nil {
+		secret := string(raw)
+		if secret != "" {
+			if err := os.Chmod(path, 0o600); err != nil {
+				return "", fmt.Errorf("secure session secret: %w", err)
+			}
+			return secret, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	secret := randomToken(48)
+	if err := os.WriteFile(path, []byte(secret), 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", fmt.Errorf("secure session secret: %w", err)
+	}
+	return secret, nil
 }

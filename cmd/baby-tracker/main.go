@@ -83,6 +83,8 @@ func serve(cfg app.Config) error {
 	server := &http.Server{
 		Handler:           application.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		ConnContext:       application.ConnContext,
 	}

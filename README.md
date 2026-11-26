@@ -26,11 +26,11 @@ Baby Tracker 的独立飞牛 fnOS FPK 仓库
 | 功能 | 说明 |
 | --- | --- |
 | 总览 | 今日奶量目标、喂养次数、尿便次数、上次喂养和快捷记录。 |
-| 趋势 | 按日、月或时段查看体重、每日喂养量和目标达成趋势。 |
-| 成长 | 疫苗规划、健康随访、自定义日程、倒计时和接种进度。 |
+| 趋势 | 按日、月或时段查看体重、身高、每日喂养量和目标达成趋势。 |
+| 成长 | 疫苗规划、健康随访、自定义日程、倒计时和接种进度，支持循环时间轮盘录入。 |
 | 家庭共享 | 使用飞牛账号登录，多设备访问同一份本地数据。 |
 | Home Assistant | 提供传感器状态、操作按钮和独立 API Key 鉴权。 |
-| MCP | 通过 Streamable HTTP 为支持 MCP 的客户端提供读取与记录工具。 |
+| MCP | 通过 Streamable HTTP 提供基础、进阶、完全三档权限，并按档位开放读取、记录与管理工具。 |
 
 <table>
   <tr>
@@ -75,7 +75,7 @@ http://<监听地址或 NAS 地址>:<端口>/mcp
 Authorization: Bearer <MCP_API_KEY>
 ```
 
-管理页可生成或轮换独立 MCP API Key，旧密钥会在轮换后立即失效。关闭 MCP 开关会立即停止 `/mcp` 端点，即使监听端口仍然开放。当前提供每日概览、记录列表、宝宝资料、快捷按钮、创建记录和使用快捷按钮等工具。
+管理页可生成或轮换独立 MCP API Key，旧密钥会在轮换后立即失效。关闭 MCP 开关会立即停止 `/mcp` 端点，即使监听端口仍然开放。基础档提供最近 30 天只读工具，进阶档增加记录写入，完全档再开放全量历史和管理工具。
 
 MCP 可访问的数据、工具权限、网络边界和未开放功能见 [MCP 功能与权限说明](docs/MCP_PERMISSIONS.md)。
 
@@ -119,8 +119,8 @@ cd Baby_tracker-fnos
 推送 `v*` 标签后，[release.yml](.github/workflows/release.yml) 会自动构建、测试并发布 FPK：
 
 ```bash
-git tag v1.8.2
-git push origin v1.8.2
+git tag v1.9.0
+git push origin v1.9.0
 ```
 
 标签版本必须与 `packaging/baby-tracker/manifest` 中的 `version` 一致。

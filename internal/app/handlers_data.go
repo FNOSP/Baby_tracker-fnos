@@ -35,7 +35,7 @@ var backupColumns = map[string][]string{
 	"settings":                  {"id", "key", "value", "updated_at"},
 	"users":                     {"id", "username", "password_hash", "nickname", "role", "status", "created_at"},
 	"quick_buttons":             {"id", "type", "sub_type", "label", "amount", "sort_order", "is_active", "food_unit", "created_at"},
-	"weight_logs":               {"id", "baby_id", "weight", "recorded_date", "note", "created_at"},
+	"weight_logs":               {"id", "baby_id", "weight", "height", "recorded_date", "note", "created_at"},
 	"vaccine_records":           {"id", "vaccine_name", "dose_index", "vaccinated_date", "note", "created_at"},
 	"vaccine_plan_overrides":    {"vaccine_name", "dose_index", "custom_due_date"},
 	"vaccine_plan_deleted":      {"vaccine_name", "dose_index"},
@@ -133,7 +133,8 @@ func (a *App) backupExport(w http.ResponseWriter, r *http.Request) {
 		rows, err := a.queryMaps(r.Context(),
 			"SELECT "+strings.Join(columns, ",")+" FROM "+table)
 		if err != nil {
-			rows = []map[string]any{}
+			writeError(w, http.StatusInternalServerError, "导出备份失败")
+			return
 		}
 		payload.Tables[table] = backupTable{Columns: columns, Rows: rows}
 	}
@@ -190,17 +191,20 @@ func (a *App) backupRestore(w http.ResponseWriter, r *http.Request) {
 	for table, data := range payload.Tables {
 		allowedColumns, ok := backupColumns[table]
 		if !ok {
-			continue
+			writeError(w, http.StatusBadRequest, "备份文件包含未知的数据表")
+			return
 		}
 		allowed := make(map[string]bool, len(allowedColumns))
 		for _, column := range allowedColumns {
 			allowed[column] = true
 		}
+		seenColumns := make(map[string]bool, len(data.Columns))
 		for _, column := range data.Columns {
-			if !allowed[column] {
+			if !allowed[column] || seenColumns[column] {
 				writeError(w, http.StatusBadRequest, "备份文件包含无效的数据列")
 				return
 			}
+			seenColumns[column] = true
 		}
 		if len(data.Rows) > 0 && len(data.Columns) == 0 {
 			writeError(w, http.StatusBadRequest, "备份文件缺少数据列")
@@ -228,7 +232,7 @@ func (a *App) backupRestore(w http.ResponseWriter, r *http.Request) {
 		for index := range placeholders {
 			placeholders[index] = "?"
 		}
-		query := "INSERT OR IGNORE INTO " + table + " (" + strings.Join(data.Columns, ",") +
+		query := "INSERT INTO " + table + " (" + strings.Join(data.Columns, ",") +
 			") VALUES (" + strings.Join(placeholders, ",") + ")"
 		count := 0
 		for _, row := range data.Rows {
@@ -238,7 +242,8 @@ func (a *App) backupRestore(w http.ResponseWriter, r *http.Request) {
 			}
 			result, err := tx.ExecContext(r.Context(), query, values...)
 			if err != nil {
-				continue
+				writeError(w, http.StatusBadRequest, "备份数据无效: "+err.Error())
+				return
 			}
 			if affected, affectedErr := result.RowsAffected(); affectedErr == nil {
 				count += int(affected)
